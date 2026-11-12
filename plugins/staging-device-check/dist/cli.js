@@ -7801,7 +7801,8 @@ function appHost(c, project, branch) {
 var NICHT_PRUEFBAR = "nicht pr\xFCfbar hier";
 var ZU_PRUEFEN = "zu pr\xFCfen";
 var deviceOf = (project) => /iphone|ipad|ios/i.test(project) ? "iPhone" : "Android";
-var firstLine = (s) => s.split("\n").find((l) => l.trim())?.trim().slice(0, 160) ?? "";
+var ANSI = /\u001b\[[0-9;]*m/g;
+var firstLine = (s) => s.replace(ANSI, "").split("\n").find((l) => l.trim())?.trim().slice(0, 160) ?? "";
 function outcomeOf(t) {
   const last = t.results?.at(-1) ?? {};
   const annotations = [...t.annotations ?? [], ...last.annotations ?? []];
@@ -7817,23 +7818,75 @@ function outcomeOf(t) {
   }
   return { outcome: "nicht bestanden", note: firstLine(last.errors?.[0]?.message ?? status) };
 }
+var annotationsOf = (t) => {
+  const seen = /* @__PURE__ */ new Set();
+  return [...t.annotations ?? [], ...t.results?.at(-1)?.annotations ?? []].filter((a) => {
+    const k = `${a.type}\0${a.description}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+};
+function stepMark(annotations, type, step) {
+  for (const a of annotations) {
+    if (a.type !== type) continue;
+    const d = a.description ?? "";
+    if (d === step) return "";
+    if (d.startsWith(`${step}: `)) return d.slice(step.length + 2);
+  }
+  return null;
+}
+function stepOutcome(step, annotations) {
+  const title = step.title ?? "";
+  const notHere = stepMark(annotations, NICHT_PRUEFBAR, title);
+  if (notHere !== null) return { outcome: "nicht pr\xFCfbar hier", note: notHere };
+  if (step.error) return { outcome: "nicht bestanden", note: firstLine(step.error.message ?? "") };
+  const look = stepMark(annotations, ZU_PRUEFEN, title);
+  if (look !== null) return { outcome: "zu pr\xFCfen (Bild)", note: look };
+  return { outcome: "bestanden", note: "" };
+}
 function parseResult(report2, screenshots) {
-  const checks = [];
+  const specs = [];
   const walk = (suite) => {
-    for (const spec of suite.specs ?? []) {
-      for (const t of spec.tests ?? []) {
-        const project = t.projectName ?? "";
-        checks.push({
-          title: spec.title ?? "",
-          device: deviceOf(project),
-          project,
-          ...outcomeOf(t)
-        });
-      }
-    }
+    specs.push(...suite.specs ?? []);
     for (const s of suite.suites ?? []) walk(s);
   };
   for (const s of report2.suites ?? []) walk(s);
+  const withSteps = new Set(
+    specs.filter((sp) => sp.tests?.some((t) => t.results?.at(-1)?.steps?.length)).map((sp) => sp.title ?? "")
+  );
+  const prefix2 = (spec, step) => withSteps.size > 1 ? `${spec}: ${step}` : step;
+  const checks = [];
+  for (const spec of specs) {
+    const specTitle = spec.title ?? "";
+    for (const t of spec.tests ?? []) {
+      const project = t.projectName ?? "";
+      const device = deviceOf(project);
+      const last = t.results?.at(-1) ?? {};
+      const steps = last.steps ?? [];
+      if (!steps.length || last.status === "skipped") {
+        checks.push({ title: specTitle, device, project, ...outcomeOf(t) });
+        continue;
+      }
+      const annotations = annotationsOf(t);
+      for (const step of steps)
+        checks.push({
+          title: prefix2(specTitle, step.title ?? ""),
+          device,
+          project,
+          ...stepOutcome(step, annotations)
+        });
+      const failed = last.status !== "passed";
+      if (failed && !steps.some((s) => s.error))
+        checks.push({
+          title: `${specTitle}: Ablauf`,
+          device,
+          project,
+          outcome: "nicht bestanden",
+          note: firstLine(last.errors?.[0]?.message ?? last.status ?? "")
+        });
+    }
+  }
   return { checks, screenshots };
 }
 var cell = (s) => s.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");

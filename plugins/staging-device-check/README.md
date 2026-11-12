@@ -95,7 +95,8 @@ Nie passiert, auch nicht mit deinem Ja:
 
 ## Minuten
 
-Ein Lauf kostet grob 1,5 BrowserStack-Minuten pro Prüfung und Gerät.
+Ein Lauf kostet grob 1,5 BrowserStack-Minuten pro Testkonto und Gerät: Alle Prüfungen eines Kontos laufen in einer
+Sitzung.
 
 - Über der Grenze pro Lauf (Standard 6 Minuten) fragt Claude vorher nach.
 - Bei wenigen verbleibenden Minuten warnt Claude.

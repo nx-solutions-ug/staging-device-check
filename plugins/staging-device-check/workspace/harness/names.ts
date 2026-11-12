@@ -24,3 +24,11 @@ export function shotName(
 ): string {
   return `${ticket}_${slug(device)}_${slug(persona)}_${String(n).padStart(2, '0')}-${slug(step)}.png`;
 }
+
+/**
+ * Description of a step's "zu prüfen" / "nicht prüfbar hier" annotation: `<step>: <rest>`. The JSON reporter keeps
+ * no annotations per step, so `report` finds the step by this prefix.
+ */
+export function stepNote(step: string, rest: string): string {
+  return `${step}: ${rest}`;
+}

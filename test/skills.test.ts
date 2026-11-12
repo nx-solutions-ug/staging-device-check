@@ -26,6 +26,9 @@ describe('skills', () => {
       expect(fm.name).toBe(dir);
       expect(typeof fm.description).toBe('string');
       expect((fm.description as string).length).toBeGreaterThan(40);
+      // English description with German trigger sentences for the tester
+      expect(fm.description as string).toMatch(/Use when/);
+      expect(fm.description as string).toMatch(/"[^"]*(teste|einrichten)[^"]*"/);
       const used = [...md.matchAll(/cli\.js"? ([a-z-]+)/g)].map((m) => m[1]);
       expect(used.length).toBeGreaterThan(0);
       for (const cmd of used) expect(COMMANDS as readonly string[]).toContain(cmd);
@@ -48,12 +51,20 @@ describe('skills', () => {
     for (const s of [
       'evaluateWith',
       'account(',
-      "'zu prüfen'",
-      "'nicht prüfbar hier'",
+      'test.step(',
+      'expect.soft',
+      'zuPruefen(',
+      'nichtPruefbarHier(',
+      'step.skip()',
+      'One `test` per persona',
       'SDC_MAILBOX',
       '--mailbox demo',
     ])
       expect(md).toContain(s);
+    // the per-check annotation helpers the skill names exist in the harness
+    const fixtures = readFileSync(join(PLUGIN, 'workspace', 'harness', 'fixtures.ts'), 'utf8');
+    for (const f of ['export function zuPruefen', 'export function nichtPruefbarHier'])
+      expect(fixtures).toContain(f);
   });
 
   test('setup sends set-secret to her own terminal, never through the chat', () => {

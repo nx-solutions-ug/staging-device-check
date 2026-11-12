@@ -23,13 +23,16 @@ development panel or from the tester. The default is `main` when the stage line 
 
 ## Mapping rows to checks
 
-| Row status                 | What the test does                                                                  |
-| -------------------------- | ----------------------------------------------------------------------------------- |
-| `✅ da`                    | One check for what the row promises, in the ticket's wording                        |
-| `⚠️ abweichend`            | One check against the **described deviation**, not against the original ticket text |
-| `✖ nicht in diesem Ticket` | No check. Listed before the run and in the section as "nicht in diesem Ticket"      |
+Each check is one `test.step` inside the persona's test, titled with the check's wording; the step title becomes the
+row of the result section.
 
-The ticket's "Done when" / acceptance criteria add checks where the table does not cover them.
+| Row status                 | What the test does                                                                 |
+| -------------------------- | ---------------------------------------------------------------------------------- |
+| `✅ da`                    | One step for what the row promises, in the ticket's wording                        |
+| `⚠️ abweichend`            | One step against the **described deviation**, not against the original ticket text |
+| `✖ nicht in diesem Ticket` | No step. Listed before the run and in the section as "nicht in diesem Ticket"      |
+
+The ticket's "Done when" / acceptance criteria add steps where the table does not cover them.
 
 ## The result section (written by `report`)
 
@@ -51,14 +54,18 @@ Bilder zum Anhängen:
 Auf dem eigenen iPhone prüfen: Weiter-Knopf über der Tastatur
 ```
 
-The result words, and what produces each:
+`report` builds **one row per `test.step` and device** from the JSON report. With several persona tests, a row names
+its persona test (`Konto A (frau): <Prüfung>`). The words, and what produces each:
 
-| Word                   | Comes from                                                                                                                            |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **bestanden**          | The test passed. Only measured things count: presence, text, numbers, layout rules                                                    |
-| **nicht bestanden**    | The test failed. A skip without the "nicht prüfbar hier" annotation also counts as a failure, with the note "übersprungen ohne Grund" |
-| **zu prüfen (Bild)**   | The test passed and carries a `'zu prüfen'` annotation: the tester judges the screenshot                                              |
-| **nicht prüfbar hier** | The test was skipped with a `'nicht prüfbar hier'` annotation, for example anything that needs the iOS keyboard                       |
+| Word                   | Comes from                                                                                                                                                                                                                                                           |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **bestanden**          | The step ran without a failed `expect.soft`. Only measured things count: presence, text, numbers, layout rules                                                                                                                                                       |
+| **nicht bestanden**    | The step has a failed assertion. A failure outside every step (for example the sign-in) gets its own row `<Test>: Ablauf`. A whole test skipped without the "nicht prüfbar hier" annotation also counts as a failure ("übersprungen ohne Grund")                     |
+| **zu prüfen (Bild)**   | `zuPruefen(<step>, <shot>)` in the step: the tester judges the named screenshot                                                                                                                                                                                      |
+| **nicht prüfbar hier** | `nichtPruefbarHier(<step>, <reason>)` and `step.skip()` in the step, for example anything that needs the iOS keyboard. Only that step's row; the persona's other steps still run. A whole test is "nicht prüfbar hier" only when the harness skips it (demo mailbox) |
+
+The Playwright JSON report keeps no annotations per step, so both helpers write a test annotation whose description
+starts with the step title (`<step>: <rest>`). The title given to the helper must be exactly the step's title.
 
 - Screenshot names: `<TICKET>_<device>_<persona>_<NN>-<step>.png`, in the run folder's `screenshots/`.
 - Session videos are signed links: they stay in `result.json` and never go into the section.

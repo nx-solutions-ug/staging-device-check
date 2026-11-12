@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { parseResult, renderStand } from '../src/report.js';
+import { stepNote } from '../plugins/staging-device-check/workspace/harness/names.js';
 
 const fixture = (name: string) =>
   readFileSync(new URL(`./fixtures/report/${name}`, import.meta.url), 'utf8');
@@ -57,6 +58,156 @@ describe('parseResult skips', () => {
     const [c] = parseResult(report as never, []).checks;
     expect(c.outcome).toBe('nicht bestanden');
     expect(c.note).toBe('übersprungen ohne Grund');
+  });
+});
+
+describe('parseResult with test.step checks (one test per persona)', () => {
+  // test/fixtures/report/steps.json: a real Playwright 1.62.1 JSON report — one persona test, four steps, two devices
+  const steps = () => parseResult(JSON.parse(fixture('steps.json')), []);
+  const row = (title: string, device: string) =>
+    steps().checks.find((c) => c.title === title && c.device === device);
+
+  test('one persona test with steps gives one row per step and device', () => {
+    const r = steps();
+    expect([...new Set(r.checks.map((c) => c.title))]).toEqual([
+      'Preis wird angezeigt',
+      'Wohnort-Schritt zeigt die Auswahl',
+      'Abstände wie im Entwurf',
+      'Weiter-Knopf über der Tastatur',
+    ]);
+    expect(r.checks).toHaveLength(8);
+    expect(row('Preis wird angezeigt', 'Android')?.outcome).toBe('nicht bestanden');
+    expect(row('Preis wird angezeigt', 'Android')?.note).toContain('Preis');
+    expect(row('Preis wird angezeigt', 'Android')?.note).not.toContain(String.fromCharCode(27));
+    expect(row('Abstände wie im Entwurf', 'iPhone')?.outcome).toBe('zu prüfen (Bild)');
+    expect(row('Abstände wie im Entwurf', 'iPhone')?.note).toBe(
+      'ACME-1_iphone_frau_01-wohnort.png',
+    );
+  });
+
+  test('a soft failure in one step leaves the next step running and passing', () => {
+    expect(row('Wohnort-Schritt zeigt die Auswahl', 'iPhone')?.outcome).toBe('bestanden');
+    expect(row('Wohnort-Schritt zeigt die Auswahl', 'Android')?.outcome).toBe('bestanden');
+  });
+
+  test('the iOS keyboard step alone is nicht prüfbar hier, the rest of the persona is measured', () => {
+    expect(row('Weiter-Knopf über der Tastatur', 'iPhone')?.outcome).toBe('nicht prüfbar hier');
+    expect(row('Weiter-Knopf über der Tastatur', 'iPhone')?.note).toBe(
+      'Tastatur auf iOS — auf eigenem iPhone prüfen',
+    );
+    expect(row('Weiter-Knopf über der Tastatur', 'Android')?.outcome).toBe('bestanden');
+    const others = steps().checks.filter(
+      (c) => c.device === 'iPhone' && c.title !== 'Weiter-Knopf über der Tastatur',
+    );
+    expect(others.map((c) => c.outcome)).not.toContain('nicht prüfbar hier');
+  });
+
+  test('three steps passed / failed / zu prüfen render as three rows', () => {
+    const report = {
+      suites: [
+        {
+          specs: [
+            {
+              title: 'Konto A (frau)',
+              tests: [
+                {
+                  projectName: 'chrome-Samsung Galaxy S23:13.0',
+                  annotations: [{ type: 'zu prüfen', description: 'Bild: ACME-1_x_01-a.png' }],
+                  results: [
+                    {
+                      status: 'failed',
+                      steps: [
+                        { title: 'Text', duration: 1 },
+                        {
+                          title: 'Preis',
+                          duration: 1,
+                          error: { message: 'Error: falscher Preis' },
+                        },
+                        { title: 'Bild', duration: 1 },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const md = renderStand(
+      parseResult(report as never, []),
+      'ACME-1',
+      HOST,
+      ['Samsung Galaxy S23'],
+      DATE,
+    );
+    const rows = md.split('\n').filter((l) => l.startsWith('| ') && !l.startsWith('| Prüfung'));
+    expect(rows).toEqual([
+      '| Text | — | bestanden | — |',
+      '| Preis | — | nicht bestanden | Android: Error: falscher Preis |',
+      '| Bild | — | zu prüfen (Bild) | Android: ACME-1_x_01-a.png |',
+    ]);
+  });
+
+  test('the harness note format is the one report reads', () => {
+    const report = {
+      suites: [
+        {
+          specs: [
+            {
+              title: 'Konto A',
+              tests: [
+                {
+                  projectName: 'safari-iPhone 16:18',
+                  annotations: [
+                    { type: 'zu prüfen', description: stepNote('Bild: Kopf', 'ACME-1_a.png') },
+                    { type: 'nicht prüfbar hier', description: stepNote('Tastatur', 'iOS') },
+                  ],
+                  results: [
+                    { status: 'passed', steps: [{ title: 'Bild: Kopf' }, { title: 'Tastatur' }] },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(parseResult(report as never, []).checks.map((c) => [c.outcome, c.note])).toEqual([
+      ['zu prüfen (Bild)', 'ACME-1_a.png'],
+      ['nicht prüfbar hier', 'iOS'],
+    ]);
+  });
+
+  test('a failure outside every step (e.g. sign-in) gets its own row', () => {
+    const report = {
+      suites: [
+        {
+          specs: [
+            {
+              title: 'Konto A (frau)',
+              tests: [
+                {
+                  projectName: 'safari-iPhone 16:18',
+                  results: [
+                    {
+                      status: 'failed',
+                      errors: [{ message: 'Error: Anmeldung fehlgeschlagen' }],
+                      steps: [{ title: 'Text', duration: 1 }],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const r = parseResult(report as never, []);
+    expect(r.checks.map((c) => [c.title, c.outcome])).toEqual([
+      ['Text', 'bestanden'],
+      ['Konto A (frau): Ablauf', 'nicht bestanden'],
+    ]);
   });
 });
 

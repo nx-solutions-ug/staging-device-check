@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Sets up staging-device-check once and changes single values later — Node and the test workspace, the settings file, the staging password in the keychain, the local gate session for the Playwright MCP, then the doctor check. Use when the tester runs /staging-device-check:setup, asks to set up or change the device tests, or when doctor or a run reports something as "fehlt".
+description: Sets up staging-device-check once and changes single values later — Node and the test workspace, the settings file, the staging password in the keychain, the local gate session for the Playwright MCP, then the doctor check. Use when the tester runs /staging-device-check:setup or says something like "Gerätetest einrichten", "Gerätetests einrichten" or "Einstellungen für den Gerätetest ändern", or when doctor or a run reports something as "fehlt".
 ---
 
 # Setup for device tests on staging

@@ -1,0 +1,208 @@
+{
+  "suites": [
+    {
+      "title": "a.spec.ts",
+      "file": "a.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "Konto A (frau)",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "zu prüfen",
+                  "description": "Abstände wie im Entwurf: ACME-1_iphone_frau_01-wohnort.png"
+                },
+                {
+                  "type": "nicht prüfbar hier",
+                  "description": "Weiter-Knopf über der Tastatur: Tastatur auf iOS — auf eigenem iPhone prüfen"
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "safari-iPhone 16:18",
+              "projectName": "safari-iPhone 16:18",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 7,
+                  "error": {
+                    "message": "Error: Preis\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"\u001b[7m1\u001b[27m9,99 €\"\u001b[39m\nReceived: \u001b[31m\"9,99 €\"\u001b[39m",
+                    "stack": "Error: Preis\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"\u001b[7m1\u001b[27m9,99 €\"\u001b[39m\nReceived: \u001b[31m\"9,99 €\"\u001b[39m\n    at /work/run/a.spec.ts:5:36\n    at /work/run/a.spec.ts:4:3",
+                    "location": {
+                      "file": "/work/run/a.spec.ts",
+                      "column": 36,
+                      "line": 5
+                    },
+                    "snippet": "  3 | test('Konto A (frau)', async () => {\n  4 |   await test.step('Preis wird angezeigt', async () => {\n> 5 |     expect.soft('9,99 €', 'Preis').toBe('19,99 €');\n    |                                    ^\n  6 |   });\n  7 |   await test.step('Wohnort-Schritt zeigt die Auswahl', async () => {\n  8 |     expect.soft(3).toBe(3);"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/work/run/a.spec.ts",
+                        "column": 36,
+                        "line": 5
+                      },
+                      "message": "Error: Preis\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"\u001b[7m1\u001b[27m9,99 €\"\u001b[39m\nReceived: \u001b[31m\"9,99 €\"\u001b[39m\n\n  3 | test('Konto A (frau)', async () => {\n  4 |   await test.step('Preis wird angezeigt', async () => {\n> 5 |     expect.soft('9,99 €', 'Preis').toBe('19,99 €');\n    |                                    ^\n  6 |   });\n  7 |   await test.step('Wohnort-Schritt zeigt die Auswahl', async () => {\n  8 |     expect.soft(3).toBe(3);\n    at /work/run/a.spec.ts:5:36\n    at /work/run/a.spec.ts:4:3"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "steps": [
+                    {
+                      "title": "Preis wird angezeigt",
+                      "duration": 5,
+                      "error": {
+                        "message": "Error: Preis\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"\u001b[7m1\u001b[27m9,99 €\"\u001b[39m\nReceived: \u001b[31m\"9,99 €\"\u001b[39m",
+                        "stack": "Error: Preis\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"\u001b[7m1\u001b[27m9,99 €\"\u001b[39m\nReceived: \u001b[31m\"9,99 €\"\u001b[39m\n    at /work/run/a.spec.ts:5:36\n    at /work/run/a.spec.ts:4:3",
+                        "location": {
+                          "file": "/work/run/a.spec.ts",
+                          "column": 36,
+                          "line": 5
+                        },
+                        "snippet": "  3 | test('Konto A (frau)', async () => {\n  4 |   await test.step('Preis wird angezeigt', async () => {\n> 5 |     expect.soft('9,99 €', 'Preis').toBe('19,99 €');\n    |                                    ^\n  6 |   });\n  7 |   await test.step('Wohnort-Schritt zeigt die Auswahl', async () => {\n  8 |     expect.soft(3).toBe(3);"
+                      }
+                    },
+                    {
+                      "title": "Wohnort-Schritt zeigt die Auswahl",
+                      "duration": 0
+                    },
+                    {
+                      "title": "Abstände wie im Entwurf",
+                      "duration": 0
+                    },
+                    {
+                      "title": "Weiter-Knopf über der Tastatur",
+                      "duration": 0
+                    }
+                  ],
+                  "annotations": [
+                    {
+                      "type": "zu prüfen",
+                      "description": "Abstände wie im Entwurf: ACME-1_iphone_frau_01-wohnort.png"
+                    },
+                    {
+                      "type": "nicht prüfbar hier",
+                      "description": "Weiter-Knopf über der Tastatur: Tastatur auf iOS — auf eigenem iPhone prüfen"
+                    }
+                  ],
+                  "attachments": [],
+                  "errorLocation": {
+                    "file": "/work/run/a.spec.ts",
+                    "column": 36,
+                    "line": 5
+                  }
+                }
+              ],
+              "status": "unexpected"
+            },
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "zu prüfen",
+                  "description": "Abstände wie im Entwurf: ACME-1_iphone_frau_01-wohnort.png"
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "chrome-Samsung Galaxy S23:13.0",
+              "projectName": "chrome-Samsung Galaxy S23:13.0",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "failed",
+                  "duration": 6,
+                  "error": {
+                    "message": "Error: Preis\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"\u001b[7m1\u001b[27m9,99 €\"\u001b[39m\nReceived: \u001b[31m\"9,99 €\"\u001b[39m",
+                    "stack": "Error: Preis\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"\u001b[7m1\u001b[27m9,99 €\"\u001b[39m\nReceived: \u001b[31m\"9,99 €\"\u001b[39m\n    at /work/run/a.spec.ts:5:36\n    at /work/run/a.spec.ts:4:3",
+                    "location": {
+                      "file": "/work/run/a.spec.ts",
+                      "column": 36,
+                      "line": 5
+                    },
+                    "snippet": "  3 | test('Konto A (frau)', async () => {\n  4 |   await test.step('Preis wird angezeigt', async () => {\n> 5 |     expect.soft('9,99 €', 'Preis').toBe('19,99 €');\n    |                                    ^\n  6 |   });\n  7 |   await test.step('Wohnort-Schritt zeigt die Auswahl', async () => {\n  8 |     expect.soft(3).toBe(3);"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/work/run/a.spec.ts",
+                        "column": 36,
+                        "line": 5
+                      },
+                      "message": "Error: Preis\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"\u001b[7m1\u001b[27m9,99 €\"\u001b[39m\nReceived: \u001b[31m\"9,99 €\"\u001b[39m\n\n  3 | test('Konto A (frau)', async () => {\n  4 |   await test.step('Preis wird angezeigt', async () => {\n> 5 |     expect.soft('9,99 €', 'Preis').toBe('19,99 €');\n    |                                    ^\n  6 |   });\n  7 |   await test.step('Wohnort-Schritt zeigt die Auswahl', async () => {\n  8 |     expect.soft(3).toBe(3);\n    at /work/run/a.spec.ts:5:36\n    at /work/run/a.spec.ts:4:3"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "steps": [
+                    {
+                      "title": "Preis wird angezeigt",
+                      "duration": 3,
+                      "error": {
+                        "message": "Error: Preis\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"\u001b[7m1\u001b[27m9,99 €\"\u001b[39m\nReceived: \u001b[31m\"9,99 €\"\u001b[39m",
+                        "stack": "Error: Preis\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"\u001b[7m1\u001b[27m9,99 €\"\u001b[39m\nReceived: \u001b[31m\"9,99 €\"\u001b[39m\n    at /work/run/a.spec.ts:5:36\n    at /work/run/a.spec.ts:4:3",
+                        "location": {
+                          "file": "/work/run/a.spec.ts",
+                          "column": 36,
+                          "line": 5
+                        },
+                        "snippet": "  3 | test('Konto A (frau)', async () => {\n  4 |   await test.step('Preis wird angezeigt', async () => {\n> 5 |     expect.soft('9,99 €', 'Preis').toBe('19,99 €');\n    |                                    ^\n  6 |   });\n  7 |   await test.step('Wohnort-Schritt zeigt die Auswahl', async () => {\n  8 |     expect.soft(3).toBe(3);"
+                      }
+                    },
+                    {
+                      "title": "Wohnort-Schritt zeigt die Auswahl",
+                      "duration": 0
+                    },
+                    {
+                      "title": "Abstände wie im Entwurf",
+                      "duration": 0
+                    },
+                    {
+                      "title": "Weiter-Knopf über der Tastatur",
+                      "duration": 0
+                    }
+                  ],
+                  "annotations": [
+                    {
+                      "type": "zu prüfen",
+                      "description": "Abstände wie im Entwurf: ACME-1_iphone_frau_01-wohnort.png"
+                    }
+                  ],
+                  "attachments": [],
+                  "errorLocation": {
+                    "file": "/work/run/a.spec.ts",
+                    "column": 36,
+                    "line": 5
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "4bb17c2992a2b9ccc470-3979a6c7de7c576cd020",
+          "file": "a.spec.ts",
+          "line": 3,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-12T12:49:01.636Z",
+    "duration": 272.889,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 2,
+    "flaky": 0
+  }
+}

@@ -6,7 +6,7 @@
  * `codePattern` (all found on the first local look). The device label is the project name.
  */
 import { appendFileSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { expect, test as base } from '@playwright/test';
 import {
   gateLogin,
@@ -18,13 +18,13 @@ import {
 } from './lib.js';
 import { evaluateWith } from './evaluate.js';
 import { measure, type LayoutOpts } from './measure.js';
-import { shotName } from './names.js';
+import { shotName, stepNote } from './names.js';
 import { evaluateRules, type RuleResult } from './rules.js';
 import { NichtPruefbarHier, signIn, type Mailbox, type SignInSelectors } from './signin.js';
 import { withStaging, type Staging } from './staging.js';
 
 export { evaluateWith } from './evaluate.js';
-export { shotName, slug } from './names.js';
+export { shotName, slug, stepNote } from './names.js';
 
 const need = (name: string): string => {
   const v = process.env[name];
@@ -175,5 +175,25 @@ export const test = base.extend<Options & Fixtures>({
     });
   },
 });
+
+/**
+ * Marks a check (a `test.step`) for the tester's eye: the report shows it as "zu prüfen (Bild)" with the
+ * screenshot's name. Call it inside the step, after `shot()`.
+ */
+export function zuPruefen(step: string, shotPath: string, hint?: string): void {
+  const file = basename(shotPath);
+  base.info().annotations.push({
+    type: 'zu prüfen',
+    description: stepNote(step, hint ? `${hint} — ${file}` : file),
+  });
+}
+
+/**
+ * Marks a check (a `test.step`) BrowserStack cannot test on this device, e.g. anything that needs the iOS keyboard.
+ * Only that step's row says "nicht prüfbar hier"; skip just the step's body (`step.skip()`), never the whole test.
+ */
+export function nichtPruefbarHier(step: string, reason: string): void {
+  base.info().annotations.push({ type: 'nicht prüfbar hier', description: stepNote(step, reason) });
+}
 
 export { expect };

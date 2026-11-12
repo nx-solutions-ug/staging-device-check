@@ -1,8 +1,12 @@
 /**
  * Turns Playwright's JSON report (`result.json`) into the run result and the German "Stand" section that the
  * tester pastes into the ticket. Result vocabulary is exact: bestanden, nicht bestanden, zu prüfen (Bild),
- * nicht prüfbar hier. A test skipped with the "nicht prüfbar hier" annotation (demo mailbox, iOS keyboard) is never
- * a pass or a failure. No signed video URLs ever go into the section.
+ * nicht prüfbar hier. No signed video URLs ever go into the section.
+ *
+ * One test per persona (one device session); each check is a `test.step`. The JSON reporter gives a step only its
+ * title, duration and error, so "zu prüfen" and "nicht prüfbar hier" travel as test annotations whose description
+ * starts with the step title: `<Schritt>: <Bild oder Grund>`. A whole test skipped with the "nicht prüfbar hier"
+ * annotation (demo mailbox) is one row; a skip without it is a failure.
  */
 
 export type Outcome = 'bestanden' | 'nicht bestanden' | 'zu prüfen (Bild)' | 'nicht prüfbar hier';
@@ -18,8 +22,10 @@ export type RunCheck = {
 export type RunResult = { checks: RunCheck[]; screenshots: string[] };
 
 type Annotation = { type?: string; description?: string };
+type PwStep = { title?: string; error?: { message?: string } };
 type PwResult = {
   status?: string;
+  steps?: PwStep[];
   errors?: Array<{ message?: string }>;
   annotations?: Annotation[];
 };
@@ -38,8 +44,11 @@ const ZU_PRUEFEN = 'zu prüfen';
 
 const deviceOf = (project: string): DeviceColumn =>
   /iphone|ipad|ios/i.test(project) ? 'iPhone' : 'Android';
+// oxlint-disable-next-line no-control-regex
+const ANSI = /\u001b\[[0-9;]*m/g;
 const firstLine = (s: string) =>
   s
+    .replace(ANSI, '')
     .split('\n')
     .find((l) => l.trim())
     ?.trim()
@@ -66,23 +75,84 @@ function outcomeOf(t: PwTest): { outcome: Outcome; note: string } {
   return { outcome: 'nicht bestanden', note: firstLine(last.errors?.[0]?.message ?? status) };
 }
 
+const annotationsOf = (t: PwTest) => {
+  const seen = new Set<string>();
+  return [...(t.annotations ?? []), ...(t.results?.at(-1)?.annotations ?? [])].filter((a) => {
+    const k = `${a.type}\u0000${a.description}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+};
+
+/** The annotation of `type` that names this step (`<step>: <rest>`), and the rest. */
+function stepMark(annotations: Annotation[], type: string, step: string): string | null {
+  for (const a of annotations) {
+    if (a.type !== type) continue;
+    const d = a.description ?? '';
+    if (d === step) return '';
+    if (d.startsWith(`${step}: `)) return d.slice(step.length + 2);
+  }
+  return null;
+}
+
+function stepOutcome(step: PwStep, annotations: Annotation[]): { outcome: Outcome; note: string } {
+  const title = step.title ?? '';
+  const notHere = stepMark(annotations, NICHT_PRUEFBAR, title);
+  if (notHere !== null) return { outcome: 'nicht prüfbar hier', note: notHere };
+  if (step.error) return { outcome: 'nicht bestanden', note: firstLine(step.error.message ?? '') };
+  const look = stepMark(annotations, ZU_PRUEFEN, title);
+  if (look !== null) return { outcome: 'zu prüfen (Bild)', note: look };
+  return { outcome: 'bestanden', note: '' };
+}
+
 export function parseResult(report: PlaywrightReport, screenshots: string[]): RunResult {
-  const checks: RunCheck[] = [];
+  const specs: PwSpec[] = [];
   const walk = (suite: PwSuite) => {
-    for (const spec of suite.specs ?? []) {
-      for (const t of spec.tests ?? []) {
-        const project = t.projectName ?? '';
-        checks.push({
-          title: spec.title ?? '',
-          device: deviceOf(project),
-          project,
-          ...outcomeOf(t),
-        });
-      }
-    }
+    specs.push(...(suite.specs ?? []));
     for (const s of suite.suites ?? []) walk(s);
   };
   for (const s of report.suites ?? []) walk(s);
+  // with several persona tests, a step row names its persona test
+  const withSteps = new Set(
+    specs
+      .filter((sp) => sp.tests?.some((t) => t.results?.at(-1)?.steps?.length))
+      .map((sp) => sp.title ?? ''),
+  );
+  const prefix = (spec: string, step: string) => (withSteps.size > 1 ? `${spec}: ${step}` : step);
+
+  const checks: RunCheck[] = [];
+  for (const spec of specs) {
+    const specTitle = spec.title ?? '';
+    for (const t of spec.tests ?? []) {
+      const project = t.projectName ?? '';
+      const device = deviceOf(project);
+      const last = t.results?.at(-1) ?? {};
+      const steps = last.steps ?? [];
+      if (!steps.length || last.status === 'skipped') {
+        checks.push({ title: specTitle, device, project, ...outcomeOf(t) });
+        continue;
+      }
+      const annotations = annotationsOf(t);
+      for (const step of steps)
+        checks.push({
+          title: prefix(specTitle, step.title ?? ''),
+          device,
+          project,
+          ...stepOutcome(step, annotations),
+        });
+      // a failure outside every step (sign-in, a hard error between steps) must not vanish
+      const failed = last.status !== 'passed';
+      if (failed && !steps.some((s) => s.error))
+        checks.push({
+          title: `${specTitle}: Ablauf`,
+          device,
+          project,
+          outcome: 'nicht bestanden',
+          note: firstLine(last.errors?.[0]?.message ?? last.status ?? ''),
+        });
+    }
+  }
   return { checks, screenshots };
 }
 
