@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configPath, defaults, loadConfig, saveConfig, type Config } from '../src/config.js';
@@ -33,9 +33,9 @@ const sample = (over: Partial<Config> = {}): Config => ({
 });
 
 describe('config path', () => {
-  test('uses the plugin data dir when Claude Code provides it', () => {
-    expect(configPath({ CLAUDE_PLUGIN_DATA: '/d/plugin-data', HOME: '/h' })).toBe(
-      '/d/plugin-data/config.json',
+  test('ignores CLAUDE_PLUGIN_DATA (one fixed place, whoever calls)', () => {
+    expect(configPath({ CLAUDE_PLUGIN_DATA: '/d', HOME: '/h' })).toBe(
+      '/h/.config/staging-device-check/config.json',
     );
   });
 
@@ -58,7 +58,7 @@ describe('settings file', () => {
   });
 
   test('saveConfig writes mode 600 and loadConfig round-trips', () => {
-    const env = { CLAUDE_PLUGIN_DATA: join(tempDir(), 'data') };
+    const env = { XDG_CONFIG_HOME: join(tempDir(), 'cfg') };
     saveConfig(sample(), env);
     const file = configPath(env);
     expect(statSync(file).mode & 0o777).toBe(0o600);
@@ -69,11 +69,12 @@ describe('settings file', () => {
   });
 
   test('loadConfig returns null when missing', () => {
-    expect(loadConfig({ CLAUDE_PLUGIN_DATA: join(tempDir(), 'nothing-here') })).toBeNull();
+    expect(loadConfig({ XDG_CONFIG_HOME: join(tempDir(), 'nothing-here') })).toBeNull();
   });
 
   test('loadConfig fills the defaults a hand-written file leaves out', () => {
-    const env = { CLAUDE_PLUGIN_DATA: tempDir() };
+    const env = { XDG_CONFIG_HOME: tempDir() };
+    mkdirSync(join(configPath(env), '..'), { recursive: true });
     const {
       standMarker: _s,
       perRunMinutes: _p,
@@ -86,7 +87,7 @@ describe('settings file', () => {
   });
 
   test('rejects tokenMinutes outside 1..120', () => {
-    const env = { CLAUDE_PLUGIN_DATA: join(tempDir(), 'data') };
+    const env = { XDG_CONFIG_HOME: join(tempDir(), 'cfg') };
     for (const tokenMinutes of [0, 121, 1.5, -5]) {
       expect(() => saveConfig(sample({ tokenMinutes }), env)).toThrow('tokenMinutes');
     }
@@ -97,7 +98,7 @@ describe('settings file', () => {
   });
 
   test('rejects an account whose login is neither quick nor code', () => {
-    const env = { CLAUDE_PLUGIN_DATA: join(tempDir(), 'data') };
+    const env = { XDG_CONFIG_HOME: join(tempDir(), 'cfg') };
     const bad = sample();
     (bad.accounts[0] as { login: string }).login = 'password';
     expect(() => saveConfig(bad, env)).toThrow('login');

@@ -4,12 +4,11 @@ import { join } from 'node:path';
 export const PLUGIN = 'staging-device-check';
 
 /**
- * Where settings and the fallback secret live: Claude Code's plugin data dir when it is set, otherwise
- * `$XDG_CONFIG_HOME/staging-device-check` or `~/.config/staging-device-check`. Commands run through the Bash tool
- * do not inherit CLAUDE_PLUGIN_DATA, so every caller must hand it over the same way, or two directories appear.
+ * Settings and the fallback secret live in one fixed place: `${XDG_CONFIG_HOME:-~/.config}/staging-device-check`.
+ * Deliberately no CLAUDE_PLUGIN_DATA branch — commands run through the Bash tool do not see that variable while
+ * hooks and MCP servers do, which would split the settings into two places.
  */
 export function dataDir(env: NodeJS.ProcessEnv = process.env): string {
-  if (env.CLAUDE_PLUGIN_DATA) return env.CLAUDE_PLUGIN_DATA;
   const base = env.XDG_CONFIG_HOME || join(env.HOME || homedir(), '.config');
   return join(base, PLUGIN);
 }

@@ -72,8 +72,9 @@ export function readGatePassword(d: SecretDeps = realSecretDeps()): string | nul
 }
 
 /**
- * Stores the staging gate password: Keychain first (read back to be sure), otherwise a mode-600 file. A keychain
- * entry that does not read back is deleted, because reads prefer the keychain.
+ * Stores the staging gate password: Keychain first (read back to be sure), otherwise a mode-600 file. Whenever the
+ * keychain path does not end in a verified write, any keychain entry is deleted — reads prefer the keychain, so a
+ * stale entry would silently win over the new file. The final read-back guarantees the next read returns `value`.
  */
 export function writeGatePassword(
   value: string,
@@ -81,17 +82,20 @@ export function writeGatePassword(
 ): 'keychain' | 'file' {
   if (!value || /[\r\n\0]/.test(value)) throw new Error('gate password must be one non-empty line');
   const file = secretFilePath(d.env);
-  if (keychainWrite(value, d)) {
-    if (keychainRead(d) === value) {
-      rmSync(file, { force: true });
-      return 'keychain';
-    }
-    keychainDelete(d);
+  if (keychainWrite(value, d) && keychainRead(d) === value) {
+    rmSync(file, { force: true });
+    return 'keychain';
   }
+  keychainDelete(d);
   const dir = join(file, '..');
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   chmodSync(dir, 0o700);
   writeFileSync(file, `${value}\n`, { mode: 0o600 });
   chmodSync(file, 0o600);
+  if (readGatePassword(d) !== value) {
+    throw new Error(
+      'gate password saved to the file, but an older keychain entry could not be removed and would be read instead',
+    );
+  }
   return 'file';
 }

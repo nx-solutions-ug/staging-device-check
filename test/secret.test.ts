@@ -15,11 +15,18 @@ const PASSWORD = 'not-a-real "gate" pass\\word with spaces';
 type Call = { cmd: string; args: string[]; input?: string };
 
 /** A fake `security` (darwin) / `secret-tool` (linux) backed by a map, recording every call. */
-function deps(platform: NodeJS.Platform, keychain: 'works' | 'missing' | 'mangles') {
+/**
+ * keychain: 'works' | 'missing' (every call fails, as a spawn error/timeout) | 'mangles' (stores a wrong value)
+ * | 'add-fails' (the add call times out, reads and deletes work) | 'stuck' (add fails and delete fails too).
+ */
+function deps(
+  platform: NodeJS.Platform,
+  keychain: 'works' | 'missing' | 'mangles' | 'add-fails' | 'stuck',
+) {
   const store = new Map<string, string>();
   const calls: Call[] = [];
   const d: SecretDeps = {
-    env: { CLAUDE_PLUGIN_DATA: join(tempDir(), 'data') },
+    env: { XDG_CONFIG_HOME: join(tempDir(), 'cfg') },
     platform,
     run: (cmd, args, input) => {
       calls.push({ cmd, args, input });
@@ -27,11 +34,13 @@ function deps(platform: NodeJS.Platform, keychain: 'works' | 'missing' | 'mangle
       if (cmd === 'security' && args[0] === '-i') {
         const line = input ?? '';
         if (line.startsWith('add-generic-password')) {
+          if (keychain === 'add-fails' || keychain === 'stuck') return { status: 127, stdout: '' };
           const raw = /-w "((?:[^"\\]|\\.)*)"\n$/.exec(line)?.[1] ?? '';
           store.set('k', keychain === 'mangles' ? 'mangled' : raw.replace(/\\(.)/g, '$1'));
           return { status: 0, stdout: '' };
         }
         if (line.startsWith('delete-generic-password')) {
+          if (keychain === 'stuck') return { status: 1, stdout: '' };
           store.delete('k');
           return { status: 0, stdout: '' };
         }
@@ -42,6 +51,7 @@ function deps(platform: NodeJS.Platform, keychain: 'works' | 'missing' | 'mangle
         return v === undefined ? { status: 44, stdout: '' } : { status: 0, stdout: `${v}\n` };
       }
       if (cmd === 'secret-tool' && args[0] === 'store') {
+        if (keychain === 'add-fails' || keychain === 'stuck') return { status: 127, stdout: '' };
         store.set('k', keychain === 'mangles' ? 'mangled' : (input ?? ''));
         return { status: 0, stdout: '' };
       }
@@ -50,6 +60,7 @@ function deps(platform: NodeJS.Platform, keychain: 'works' | 'missing' | 'mangle
         return v === undefined ? { status: 1, stdout: '' } : { status: 0, stdout: v };
       }
       if (cmd === 'secret-tool' && args[0] === 'clear') {
+        if (keychain === 'stuck') return { status: 1, stdout: '' };
         store.delete('k');
         return { status: 0, stdout: '' };
       }
@@ -111,6 +122,23 @@ describe('gate password store', () => {
     expect(existsSync(secretFilePath(d.env))).toBe(false);
   });
 
+  test('a password change after a failed keychain write is read with the new value', () => {
+    for (const platform of ['darwin', 'linux'] as const) {
+      const { d, store } = deps(platform, 'add-fails');
+      store.set('k', 'old-password');
+      expect(readGatePassword(d)).toBe('old-password');
+      expect(writeGatePassword('new-password', d)).toBe('file');
+      expect(store.has('k')).toBe(false);
+      expect(readGatePassword(d)).toBe('new-password');
+    }
+  });
+
+  test('throws when an old keychain entry can neither be replaced nor removed', () => {
+    const { d, store } = deps('darwin', 'stuck');
+    store.set('k', 'old-password');
+    expect(() => writeGatePassword('new-password', d)).toThrow('older keychain entry');
+  });
+
   test('no password anywhere reads as null', () => {
     expect(readGatePassword(deps('darwin', 'missing').d)).toBeNull();
   });
@@ -122,7 +150,9 @@ describe('gate password store', () => {
   });
 
   test('the fallback file sits next to the settings', () => {
-    expect(secretFilePath({ CLAUDE_PLUGIN_DATA: '/d/data' })).toBe('/d/data/gate-password');
+    expect(secretFilePath({ XDG_CONFIG_HOME: '/x/cfg', HOME: '/h' })).toBe(
+      '/x/cfg/staging-device-check/gate-password',
+    );
     expect(secretFilePath({ HOME: '/h' })).toBe('/h/.config/staging-device-check/gate-password');
   });
 });
