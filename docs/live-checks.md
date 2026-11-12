@@ -105,6 +105,28 @@ this run.
 - The probe is now `position: fixed`, which never adds to the scroll height, and the spec records each rule's detail.
 - Confirming this needs one more short iOS run (≈ 0.5 min), which was not made within the 1-minute budget.
 
+## 12.11.2026 — iOS confirmation (run 4), iPhone 16 / iOS 18 only
+
+`cli.js run … --devices iphone`, same method: the narrowed copy without credentials, mode 600, removed after the
+run; the credentials only in the child env. **Minutes: 0.5** (API session sum 9.4 → 9.9). The whole live check used
+≈ 3.4 min.
+
+- The test **passed**.
+- `layout()` on the smoke page with the `fixed` 100lvh probe gave R1 **`bestanden`** (`maxScroll 0 − Footer 80 =
+  -80`). All the other rules came back `bestanden` with their details:
+  - start: `scrollY 0`;
+  - R2: elements under the 56 px header;
+  - R4: action 595..643 inside 0..659;
+  - R5: page width 393 equals the window width 393;
+  - R6: all controls ≥ 44 px;
+  - R3: nothing overlaps the action bar.
+- Viewport 659 / 741 / 659. `tap` and `fill` focus. `addCookies(url)` works; `clearCookies({ name })` is rejected,
+  and the fallback `clearCookies()` removes the cookie. `shot()` writes the file.
+- This confirms that the R1 failure in run 3 came from the old `absolute` probe on the smoke page, not from the
+  harness.
+- Redaction scan of the temporary HOME (929 files, `node_modules` excluded): 0 hits. No yml copy was left in the run
+  folder.
+
 ## Still open
 
 - **The `report` note.** It shows the raw first error line, including ANSI colour codes. Notes should drop ANSI
