@@ -171,6 +171,9 @@ async function doctor(d: CliDeps, json: boolean): Promise<number> {
     add('ok', 'Test-Arbeitsbereich');
   else add('fehlt', 'Test-Arbeitsbereich', 'Bitte „install-workspace“ ausführen.');
 
+  const mcp = mcpCheck(join(d.workspaceSource, '..', '.mcp.json'));
+  add(mcp.ok ? 'ok' : 'fehlt', 'Playwright-MCP', mcp.detail);
+
   const state = gateStatePath(d.env);
   let gateUntil: number | null = null;
   try {
@@ -192,6 +195,31 @@ async function doctor(d: CliDeps, json: boolean): Promise<number> {
   if (json) d.out(JSON.stringify(checks, null, 2));
   else for (const c of checks) d.out(`${c.status} ${c.label}${c.detail ? ` — ${c.detail}` : ''}`);
   return checks.some((c) => c.status === 'fehlt') ? 1 : 0;
+}
+
+/** The plugin's Playwright MCP server: pinned, isolated, started with the local gate session (storage state). */
+function mcpCheck(file: string): { ok: boolean; detail: string } {
+  let server: { command?: string; args?: string[] } | undefined;
+  try {
+    server = (
+      JSON.parse(readFileSync(file, 'utf8')) as { mcpServers?: Record<string, typeof server> }
+    ).mcpServers?.playwright;
+  } catch {
+    return {
+      ok: false,
+      detail: 'Die .mcp.json des Plugins fehlt oder ist kein JSON — Plugin neu installieren.',
+    };
+  }
+  if (!server) return { ok: false, detail: 'In der .mcp.json fehlt der Server „playwright“.' };
+  const all = [server.command ?? '', ...(server.args ?? [])].join(' ');
+  const version = /@playwright\/mcp@(\d+\.\d+\.\d+)(?=["'\s]|$)/.exec(all)?.[1];
+  if (!version) return { ok: false, detail: '@playwright/mcp hat keine feste Version.' };
+  if (!all.includes('--storage-state') || !all.includes('staging-device-check/gate-state.json'))
+    return {
+      ok: false,
+      detail: 'Der Server startet nicht mit der Gate-Sitzung (--storage-state …/gate-state.json).',
+    };
+  return { ok: true, detail: `@playwright/mcp ${version}, mit der Gate-Sitzung` };
 }
 
 // ---------- install-workspace ----------

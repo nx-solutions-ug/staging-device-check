@@ -364,6 +364,35 @@ describe('runTests', () => {
     expect(readFileSync(join(dir, 'partial.txt'), 'utf8')).not.toContain(TOKEN);
   });
 
+  test('refuses a spec that hands evaluate a second argument (dropped on iOS)', async () => {
+    const h = home();
+    const { d, err, spawned } = deps(h.env);
+    const dir = prepare('ACME-1', 'd-acme-de--main.dating.staging.example.test', d);
+    writeFileSync(
+      join(dir, 'tests-e2e.spec.ts'),
+      [
+        "import { test } from './harness/fixtures.js';",
+        "test('a', async ({ page }) => {",
+        '  await page.evaluate((y) => window.scrollTo(0, y), 10);',
+        "  await page.locator('#x').evaluateAll((els, n) => els.length > n, 1);",
+        "  await page.$eval('#x', (el, c) => el.classList.add(c), 'on');",
+        '  await page.waitForFunction(() => true, undefined, { timeout: 100 });',
+        "  await page.$eval('#x', (el) => el.id);",
+        '});',
+        '',
+      ].join('\n'),
+    );
+    expect(await runTests(dir, {}, d)).toBe(1);
+    expect(spawned).toEqual([]);
+    const t = err.join('\n');
+    expect(t).toContain('evaluateWith');
+    expect(t).toContain('tests-e2e.spec.ts:3');
+    expect(t).toContain('tests-e2e.spec.ts:4');
+    expect(t).toContain('tests-e2e.spec.ts:5');
+    expect(t).not.toContain('tests-e2e.spec.ts:6');
+    expect(t).not.toContain('tests-e2e.spec.ts:7');
+  });
+
   test('a stale yml copy is removed before anything else', async () => {
     const h = home();
     const { d } = deps(h.env, { listTests: async () => 0 });

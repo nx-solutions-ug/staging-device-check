@@ -18,6 +18,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isMap, isSeq, parseDocument, YAMLSeq } from 'yaml';
 import { checkYml, usedMinutes } from './bsyml.js';
+import { evaluateArgFindings } from './evaluate-guard.js';
 import { loadConfig } from './config.js';
 import { stateDir } from './paths.js';
 import { redactor } from './redact.js';
@@ -224,6 +225,19 @@ export function cleanRunFolder(dir: string, secrets: string[]): void {
   walk(dir);
 }
 
+/** The spec files of the run folder, checked for evaluate arguments iOS would drop. */
+function specFindings(dir: string): string[] {
+  return readdirSync(dir)
+    .filter((f) => f.endsWith('.spec.ts'))
+    .flatMap((f) => {
+      try {
+        return evaluateArgFindings(readFileSync(join(dir, f), 'utf8'), f);
+      } catch (e) {
+        return [`${f} (nicht lesbar: ${(e as Error).message.split('\n')[0]})`];
+      }
+    });
+}
+
 const NOT_STARTED = /UmgebungNichtGestartet|Umgebung nicht gestartet/;
 
 const minutesText = (m: number) => `${Math.round(m * 10) / 10}`.replace('.', ',');
@@ -233,6 +247,14 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
   rmSync(join(dir, RUN_YML), { force: true });
   const meta = readMeta(dir);
   validateTicket(meta.ticket);
+  const unsafe = specFindings(dir);
+  if (unsafe.length) {
+    d.err(
+      `Der Test übergibt page.evaluate (oder $eval, waitForFunction …) ein Argument, das auf dem iPhone verloren geht: ${unsafe.join(', ')}. ` +
+        'Bitte evaluateWith(page, fn, arg) aus der Harness verwenden. Der Lauf startet nicht.',
+    );
+    return 1;
+  }
   const config = loadConfig(d.env);
   if (!config) {
     d.err('Keine Einstellungen gefunden — bitte zuerst das Setup ausführen.');

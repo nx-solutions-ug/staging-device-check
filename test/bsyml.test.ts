@@ -70,10 +70,10 @@ describe('checkYml', () => {
   test('credentials from the environment are enough', () => {
     const r = checkYml(fixture('no-credentials.yml'), {
       BROWSERSTACK_USERNAME: 'env-user-0001',
-      BROWSERSTACK_ACCESS_KEY: 'envAccessKey00000000',
+      BROWSERSTACK_ACCESS_KEY: 'fakeEnvAccessKey0000',
     });
     expect(r.errors.join(' ')).not.toMatch(/userName|accessKey/);
-    expect(r.secretsForRedaction).toContain('envAccessKey00000000');
+    expect(r.secretsForRedaction).toContain('fakeEnvAccessKey0000');
   });
 
   test('warns when the file is readable by others or sits in a git working tree', () => {

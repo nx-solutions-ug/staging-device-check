@@ -149,7 +149,45 @@ describe('doctor', () => {
     expect(t).toMatch(/geschätzt/);
     expect(t).not.toContain(GATE_PW);
     expect(t).not.toContain('invented-token');
+    expect(t).toMatch(/^ok Playwright-MCP/m);
     expect(code).toBe(0);
+  });
+
+  test('doctor flags a Playwright MCP config that is missing, unpinned or without the gate session', async () => {
+    const h = home();
+    const plugin = join(h.root, 'plugin');
+    mkdirSync(join(plugin, 'workspace'), { recursive: true });
+    const check = async () => {
+      const { d, out } = deps(h.env, { workspaceSource: join(plugin, 'workspace') });
+      await main(['doctor', '--json'], d);
+      return (
+        JSON.parse(out.join('\n')) as Array<{ status: string; label: string; detail: string }>
+      ).find((x) => x.label === 'Playwright-MCP');
+    };
+    expect((await check())?.status).toBe('fehlt');
+    const server = (args: string[]) =>
+      writeFileSync(
+        join(plugin, '.mcp.json'),
+        JSON.stringify({ mcpServers: { playwright: { command: 'npx', args } } }),
+      );
+    server([
+      '-y',
+      '@playwright/mcp@latest',
+      '--isolated',
+      '--storage-state',
+      '/x/staging-device-check/gate-state.json',
+    ]);
+    expect((await check())?.detail).toContain('Version');
+    server(['-y', '@playwright/mcp@0.0.84', '--isolated']);
+    expect((await check())?.detail).toContain('gate-state.json');
+    server([
+      '-y',
+      '@playwright/mcp@0.0.84',
+      '--isolated',
+      '--storage-state',
+      '/x/staging-device-check/gate-state.json',
+    ]);
+    expect((await check())?.status).toBe('ok');
   });
 });
 

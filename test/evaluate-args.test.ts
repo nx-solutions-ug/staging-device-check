@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import ts from 'typescript';
+import { evaluateArgFindings } from '../src/evaluate-guard.js';
 import {
   evaluateWith,
   withArg,
@@ -31,35 +31,28 @@ describe('evaluate arguments (BrowserStack iOS drops them)', () => {
     expect(calls[0]).toHaveLength(1);
   });
 
-  test('no harness call passes a second argument to evaluate, evaluateHandle or waitForFunction', () => {
-    const offenders: string[] = [];
-    for (const name of readdirSync(HARNESS).filter(
-      (f) => f.endsWith('.ts') && !f.endsWith('.d.ts'),
-    )) {
-      const file = join(HARNESS, name);
-      const src = ts.createSourceFile(
-        file,
-        readFileSync(file, 'utf8'),
-        ts.ScriptTarget.Latest,
-        true,
-      );
-      const visit = (n: ts.Node) => {
-        if (
-          ts.isCallExpression(n) &&
-          ts.isPropertyAccessExpression(n.expression) &&
-          ['evaluate', 'evaluateHandle', 'waitForFunction'].includes(n.expression.name.text)
-        ) {
-          const [, second] = n.arguments;
-          const passes = second && !(ts.isIdentifier(second) && second.text === 'undefined');
-          if (passes) {
-            const { line } = src.getLineAndCharacterOfPosition(n.getStart());
-            offenders.push(`${name}:${line + 1}`);
-          }
-        }
-        ts.forEachChild(n, visit);
-      };
-      visit(src);
-    }
+  test('no harness call passes a dropped argument to evaluate and friends', () => {
+    const offenders = readdirSync(HARNESS)
+      .filter((f) => f.endsWith('.ts') && !f.endsWith('.d.ts'))
+      .flatMap((f) => evaluateArgFindings(readFileSync(join(HARNESS, f), 'utf8'), f));
     expect(offenders).toEqual([]);
+  });
+
+  test('the guard knows every evaluate form and its argument position', () => {
+    const src = [
+      'await page.evaluate((y) => y, 1);',
+      'await page.evaluate(() => 1);',
+      'await page.waitForFunction(() => true, undefined, { timeout: 1 });',
+      'await page.locator("a").evaluateAll((els, n) => n, 2);',
+      'await page.$eval("a", (el, c) => c, 3);',
+      'await page.$$eval("a", (els) => els.length);',
+      'await handle.evaluateHandle((x, y) => y, 4);',
+    ].join('\n');
+    expect(evaluateArgFindings(src, 's.ts')).toEqual([
+      's.ts:1 evaluate',
+      's.ts:4 evaluateAll',
+      's.ts:5 $eval',
+      's.ts:7 evaluateHandle',
+    ]);
   });
 });
