@@ -23491,7 +23491,12 @@ async function doctor(d, json) {
   }
   const password = readGatePassword(d.secret);
   if (password) add("ok", "Staging-Passwort gespeichert");
-  else add("fehlt", "Staging-Passwort", "Bitte mit \u201Eset-secret\u201C im eigenen Terminal eingeben.");
+  else
+    add(
+      "fehlt",
+      "Staging-Passwort",
+      "Bitte das Setup ausf\xFChren: Es fragt das Passwort in einem Fenster ab."
+    );
   if (config && password) {
     const label = Object.values(config.projects)[0];
     if (!label) add("fehlt", "Staging-Zugang", "Im Setup ist noch kein Projekt hinterlegt.");

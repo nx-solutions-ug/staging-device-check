@@ -165,7 +165,12 @@ async function doctor(d: CliDeps, json: boolean): Promise<number> {
 
   const password = readGatePassword(d.secret);
   if (password) add('ok', 'Staging-Passwort gespeichert');
-  else add('fehlt', 'Staging-Passwort', 'Bitte mit „set-secret“ im eigenen Terminal eingeben.');
+  else
+    add(
+      'fehlt',
+      'Staging-Passwort',
+      'Bitte das Setup ausführen: Es fragt das Passwort in einem Fenster ab.',
+    );
 
   if (config && password) {
     const label = Object.values(config.projects)[0];

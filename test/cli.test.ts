@@ -204,6 +204,16 @@ describe('doctor', () => {
     expect((await check())?.detail).toContain('Node fehlt');
   });
 
+  test('a missing password points to the setup dialog, not to a terminal', async () => {
+    const h = home();
+    const { d, out } = deps(h.env);
+    await main(['doctor'], d);
+    const line = out.find((l) => l.includes('Staging-Passwort')) ?? '';
+    expect(line).toMatch(/^fehlt Staging-Passwort/);
+    expect(line).toContain('Setup');
+    expect(line).not.toContain('Terminal');
+  });
+
   test('doctor names where Node comes from, and hints when the own copy is missing', async () => {
     const h = home();
     const own = deps(h.env);
