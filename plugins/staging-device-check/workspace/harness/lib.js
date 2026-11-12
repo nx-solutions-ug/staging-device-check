@@ -245,7 +245,8 @@ function parseGateCookie(header, fallbackDomain) {
   const maxAge = Number(attr.get("max-age"));
   const expiresAt = attr.has("expires") ? Math.floor(Date.parse(attr.get("expires")) / 1e3) : NaN;
   const expires = Number.isFinite(maxAge) && attr.has("max-age") ? now + maxAge : Number.isFinite(expiresAt) ? expiresAt : -1;
-  return { name: "staging_gate", value, domain: attr.get("domain") || fallbackDomain, expires };
+  const domain = attr.get("domain") ? `.${attr.get("domain").replace(/^\./, "")}` : fallbackDomain;
+  return { name: "staging_gate", value, domain, expires };
 }
 async function gateLogin(apex, password, fetchFn = fetch) {
   checkApex(apex);

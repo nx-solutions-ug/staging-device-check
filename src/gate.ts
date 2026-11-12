@@ -210,7 +210,12 @@ function parseGateCookie(header: string, fallbackDomain: string): GateCookie | n
       : Number.isFinite(expiresAt)
         ? expiresAt
         : -1;
-  return { name: 'staging_gate', value, domain: attr.get('domain') || fallbackDomain, expires };
+  // A Domain attribute covers the subdomains (RFC 6265 drops a leading dot); the storage state of the local browser
+  // needs the dot to say so, or the app hosts below the apex never get the cookie.
+  const domain = attr.get('domain')
+    ? `.${(attr.get('domain') as string).replace(/^\./, '')}`
+    : fallbackDomain;
+  return { name: 'staging_gate', value, domain, expires };
 }
 
 /** `POST {apex}/_gate/login` → the domain-wide 7-day `staging_gate` cookie (local use only). */

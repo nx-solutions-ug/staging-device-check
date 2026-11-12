@@ -160,6 +160,19 @@ describe('gateLogin', () => {
     expect(new URLSearchParams(String(calls[0].init.body)).get('password')).toBe(PASSWORD);
   });
 
+  test('a Domain attribute without a leading dot still opens the subdomains (storage-state form)', async () => {
+    // RFC 6265 ignores a leading dot, so servers send `domain=apex`; Playwright's storage state reads a domain
+    // without the dot as host-only, and the app hosts below the apex would never see the cookie
+    const { fn } = mockFetch(
+      () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: '/', 'set-cookie': setCookie.replace('domain=.', 'domain=') },
+        }),
+    );
+    expect((await gateLogin(APEX, PASSWORD, fn)).domain).toBe('.staging.example.test');
+  });
+
   test('401 is a wrong password', async () => {
     const { fn } = mockFetch(() => new Response('<html>', { status: 401 }));
     expect((await kindOf(gateLogin(APEX, PASSWORD, fn))).kind).toBe('wrong-password');
