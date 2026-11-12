@@ -60,9 +60,11 @@ After writing it: `chmod 600` on the file. `doctor` (step 5) validates it and na
      chat or in the output.
    - It prints only `gespeichert (Schlüsselbund)` — or `gespeichert (Datei)` where no password manager answers —
      or a German message: "Abgebrochen. Nichts gespeichert." when she cancelled, "zu kurz" (at least 16
-     characters) or "stimmten nicht überein", where the dialog simply asks again.
+     characters) or "stimmten nicht überein", where the dialog simply asks again. A window nobody answers closes
+     after 5 minutes and counts as cancelled: nothing stored; run the step again when she is ready.
 
-2. **Only when it exits with code 3** (no dialog here: no screen, or no dialog program): the terminal path. Tell
+2. **Only when it exits with code 3** (no dialog here: no screen, no dialog program, or on a Mac no GUI session):
+   the terminal path. Tell
    her to open her own terminal window (not this chat), paste exactly this command with the path filled in, type
    the password twice and come back with "fertig":
 

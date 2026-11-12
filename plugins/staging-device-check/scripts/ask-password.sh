@@ -7,6 +7,8 @@
 set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 title='Staging Device Check'
+# a dialog nobody answers counts as cancelled after this many seconds
+limit=${SDC_DIALOG_TIMEOUT:-300}
 
 case "${SDC_DIALOG_SYSTEM:-$(uname -s)}" in
   Darwin) kind=osascript ;;
@@ -26,21 +28,48 @@ if [ -z "$kind" ]; then
   exit 3
 fi
 
-# One hidden entry; prints it, or fails when the dialog was cancelled (or gave up after 5 minutes).
+# Runs a dialog program, ended after `$1` seconds where `timeout` exists (exit 124).
+limited() {
+  seconds=$1
+  shift
+  if command -v timeout >/dev/null 2>&1; then timeout "$seconds" "$@"; else "$@"; fi
+}
+
+# One hidden entry; prints it, or fails when the dialog was cancelled, timed out or could not open.
 ask() {
   case "$kind" in
     osascript)
-      osascript - "$1" "$title" <<'APPLESCRIPT'
+      # osascript gives up by itself after `limit`; the outer limit only catches a hung osascript
+      limited "$((limit + 10))" osascript - "$1" "$title" "$limit" <<'APPLESCRIPT'
 on run argv
-  set r to display dialog (item 1 of argv) with title (item 2 of argv) default answer "" with hidden answer buttons {"Abbrechen", "Speichern"} default button "Speichern" cancel button "Abbrechen" giving up after 300
+  set r to display dialog (item 1 of argv) with title (item 2 of argv) default answer "" with hidden answer buttons {"Abbrechen", "Speichern"} default button "Speichern" cancel button "Abbrechen" giving up after ((item 3 of argv) as integer)
   if gave up of r then error number -128
   return text returned of r
 end run
 APPLESCRIPT
       ;;
-    kdialog) kdialog --title "$title" --password "$1" ;;
-    zenity) zenity --password --title "$title — $1" --timeout=300 ;;
+    kdialog) limited "$limit" kdialog --title "$title" --password "$1" ;;
+    zenity) limited "$((limit + 10))" zenity --password --title "$title — $1" --timeout="$limit" ;;
   esac
+}
+
+errors=$(mktemp)
+trap 'rm -f "$errors"' EXIT
+trap 'exit 130' INT TERM HUP
+
+# A dialog that did not return a value: osascript failing for another reason than its cancel (-128) means there is
+# no GUI session (for example over SSH): the terminal path. Everything else, timeouts included, is a cancel.
+failed() {
+  if [ "$kind" = osascript ] && [ "$1" -ne 124 ] && ! grep -q -- '(-128)' "$errors"; then
+    echo "Der Passwort-Dialog lässt sich hier nicht öffnen (keine Bildschirm-Sitzung). Bitte im eigenen Terminal: sh \"$here/sdc\" set-secret" >&2
+    exit 3
+  fi
+  if [ "$1" -eq 124 ] || [ "$1" -eq 5 ]; then
+    echo "Keine Eingabe innerhalb von $limit Sekunden — abgebrochen. Nichts gespeichert." >&2
+  else
+    echo "Abgebrochen. Nichts gespeichert." >&2
+  fi
+  exit 1
 }
 
 prompt='Staging-Passwort (mindestens 16 Zeichen):'
@@ -51,19 +80,21 @@ while :; do
     echo "Dreimal keine passende Eingabe. Nichts gespeichert." >&2
     exit 1
   fi
-  if ! first=$(ask "$prompt"); then
-    echo "Abgebrochen. Nichts gespeichert." >&2
-    exit 1
+  first=$(ask "$prompt" 2>"$errors") && status=0 || status=$?
+  if [ "$status" -ne 0 ]; then
+    first=
+    failed "$status"
   fi
   if [ "${#first}" -lt 16 ]; then
     first=
     prompt='Das war kürzer als 16 Zeichen — bitte das Staging-Passwort eingeben:'
     continue
   fi
-  if ! second=$(ask 'Bitte zur Bestätigung noch einmal eingeben:'); then
+  second=$(ask 'Bitte zur Bestätigung noch einmal eingeben:' 2>"$errors") && status=0 || status=$?
+  if [ "$status" -ne 0 ]; then
     first=
-    echo "Abgebrochen. Nichts gespeichert." >&2
-    exit 1
+    second=
+    failed "$status"
   fi
   if [ "$first" = "$second" ]; then
     break

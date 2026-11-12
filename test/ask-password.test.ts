@@ -34,7 +34,20 @@ function setup(
   cpSync(join(PLUGIN, 'dist'), join(plugin, 'dist'), { recursive: true });
   const bin = join(root, 'bin');
   mkdirSync(bin);
-  for (const tool of ['sh', 'head', 'sed', 'cat', 'dirname', 'uname', 'node'])
+  for (const tool of [
+    'sh',
+    'head',
+    'sed',
+    'cat',
+    'dirname',
+    'uname',
+    'node',
+    'timeout',
+    'grep',
+    'mktemp',
+    'rm',
+    'sleep',
+  ])
     spawnSync('ln', [
       '-s',
       spawnSync('sh', ['-c', `command -v ${tool}`], { encoding: 'utf8' }).stdout.trim(),
@@ -42,9 +55,16 @@ function setup(
     ]);
   const queue = join(root, 'answers');
   writeFileSync(queue, answers.map((a) => `${a}\n`).join(''));
-  const answer = `a=$(head -n 1 "${queue}"); sed -i '1d' "${queue}"; [ "$a" = CANCEL ] && exit 1; printf '%s\\n' "$a"`;
+  // CANCEL: the cancel button (osascript: error -128); NOGUI: osascript without a GUI session; HANG: never answers
+  const answer = (cancel: string) =>
+    `a=$(head -n 1 "${queue}"); sed -i '1d' "${queue}"; [ "$a" = CANCEL ] && { ${cancel} exit 1; }; [ "$a" = NOGUI ] && { echo 'execution error: No user interaction allowed. (-1713)' >&2; exit 1; }; [ "$a" = HANG ] && { sleep 30; exit 0; }; printf '%s\\n' "$a"`;
   for (const d of o.dialogs ?? ['kdialog', 'zenity', 'osascript'])
-    fake(join(bin, d), d === 'osascript' ? `cat >/dev/null; ${answer}` : answer);
+    fake(
+      join(bin, d),
+      d === 'osascript'
+        ? `cat >/dev/null; ${answer("echo 'execution error: User canceled. (-128)' >&2;")}`
+        : answer(''),
+    );
   const store = join(root, 'store');
   fake(
     join(bin, 'secret-tool'),
@@ -61,6 +81,7 @@ function setup(
       HOME: home,
       ARGV_LOG: argvLog,
       SDC_DIALOG_SYSTEM: o.system ?? 'Linux',
+      SDC_DIALOG_TIMEOUT: '2',
       ...(o.display === false ? {} : { DISPLAY: ':99' }),
     },
   });
@@ -104,6 +125,30 @@ describe('ask-password.sh (native dialog → set-secret --stdin)', () => {
     const s = setup([SECRET, 'something-else-entirely', 'CANCEL']);
     expect(s.r.status).not.toBe(0);
     expect(existsSync(s.store)).toBe(false);
+  });
+
+  test('osascript without a GUI session hands over to the terminal path (exit 3), not "Abgebrochen"', () => {
+    const s = setup(['NOGUI'], { system: 'Darwin' });
+    expect(s.r.status).toBe(3);
+    expect(s.r.stderr).toContain('set-secret');
+    expect(s.r.stderr).not.toContain('Abgebrochen');
+    expect(existsSync(s.store)).toBe(false);
+  });
+
+  for (const system of ['Linux', 'Darwin']) {
+    test(`${system}: a dialog nobody answers times out and counts as cancelled`, () => {
+      const started = Date.now();
+      const s = setup(['HANG', SECRET, SECRET], { system, dialogs: ['kdialog', 'osascript'] });
+      expect(s.r.status).toBe(1);
+      expect(s.r.stderr).toContain('Nichts gespeichert');
+      expect(existsSync(s.store)).toBe(false);
+      expect(Date.now() - started).toBeLessThan(20_000);
+    }, 30_000);
+  }
+
+  test('every dialog gets the time limit', () => {
+    expect(setup([SECRET, SECRET], { dialogs: ['zenity'] }).argv()).toContain('--timeout=2');
+    expect(setup([SECRET, SECRET], { system: 'Darwin' }).argv()).toMatch(/osascript - .* 2$/m);
   });
 
   test('zenity when there is no kdialog', () => {
