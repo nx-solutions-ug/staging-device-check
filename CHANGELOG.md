@@ -1,3 +1,12 @@
+## [1.1.1](https://github.com/nx-solutions-ug/staging-device-check/compare/v1.1.0...v1.1.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* an aborted run reads "abgebrochen", internal device-service errors stay out of the section ([81f785d](https://github.com/nx-solutions-ug/staging-device-check/commit/81f785db16a42ec941129296e9e32207effeaeca))
+* an interrupted check is never "bestanden", a real failure keeps its row in an aborted run ([8b5e87a](https://github.com/nx-solutions-ug/staging-device-check/commit/8b5e87a71c40ca16332dbdd8392599c96e5d2ee3))
+* report after a hard stop without result.json writes the aborted section ([4c345ef](https://github.com/nx-solutions-ug/staging-device-check/commit/4c345ef6b3f7feccd1f8ade4ceec1eb9e5292403))
+
 # [1.1.0](https://github.com/nx-solutions-ug/staging-device-check/compare/v1.0.0...v1.1.0) (2026-11-12)
 
 
