@@ -3,5 +3,5 @@
 export { loadConfig, type Config, type TestAccount } from './config.js';
 export { readGatePassword } from './secret.js';
 export { GateError, gateLogin, mintRunToken, type RunToken } from './gate.js';
-export { latestLoginCode } from './mailpit.js';
+export { latestLoginCode, mailboxSnapshot } from './mailpit.js';
 export { redactor } from './redact.js';

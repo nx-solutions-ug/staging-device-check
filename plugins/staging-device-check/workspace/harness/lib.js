@@ -222,27 +222,36 @@ async function gateLogin(apex, password, fetchFn = fetch) {
 }
 
 // src/mailpit.ts
-async function latestLoginCode(apex, gateCookie, email, since, fetchFn = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), opts = {}) {
-  const { pattern = /\b\d{6}\b/, timeoutMs = 6e4, intervalMs = 2e3, now = Date.now } = opts;
+function client(apex, gateCookie, fetchFn) {
   const base2 = `${apex.replace(/\/+$/, "")}/mailpit/api/v1`;
   const headers = { cookie: `staging_gate=${gateCookie}`, accept: "application/json" };
   const get = async (url) => {
     const r = await fetchFn(url, { headers });
-    if (r.status === 401 || r.status === 403 || r.redirected)
+    if (r.status === 401 || r.status === 403 || r.redirected) {
       throw new Error("Mailpit ist ohne g\xFCltige Gate-Sitzung nicht lesbar.");
+    }
     if (!r.ok) throw new Error(`Mailpit antwortet mit HTTP ${r.status}.`);
     return r.json();
   };
+  return {
+    search: async (email) => (await get(`${base2}/search?query=${encodeURIComponent(`to:"${email}"`)}&limit=20`)).messages ?? [],
+    text: async (id) => {
+      const msg = await get(`${base2}/message/${encodeURIComponent(id)}`);
+      return msg.Text || (msg.HTML ?? "").replace(/<[^>]+>/g, " ");
+    }
+  };
+}
+async function mailboxSnapshot(apex, gateCookie, email, fetchFn = fetch) {
+  return new Set((await client(apex, gateCookie, fetchFn).search(email)).map((m) => m.ID));
+}
+async function latestLoginCode(apex, gateCookie, email, known, fetchFn = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), opts = {}) {
+  const { pattern = /\b\d{6}\b/, timeoutMs = 6e4, intervalMs = 2e3, now = Date.now } = opts;
+  const mp = client(apex, gateCookie, fetchFn);
   const deadline = now() + timeoutMs;
   for (; ; ) {
-    const search = await get(
-      `${base2}/search?query=${encodeURIComponent(`to:"${email}"`)}&limit=20`
-    );
-    const fresh = (search.messages ?? []).filter((m) => Date.parse(m.Created) > since.getTime()).sort((a, b) => Date.parse(b.Created) - Date.parse(a.Created));
+    const fresh = (await mp.search(email)).filter((m) => !known.has(m.ID)).sort((a, b) => Date.parse(b.Created) - Date.parse(a.Created));
     for (const m of fresh) {
-      const msg = await get(`${base2}/message/${encodeURIComponent(m.ID)}`);
-      const text = msg.Text || (msg.HTML ?? "").replace(/<[^>]+>/g, " ");
-      const code = pattern.exec(text)?.[0];
+      const code = pattern.exec(await mp.text(m.ID))?.[0];
       if (code) return code;
     }
     if (now() >= deadline) break;
@@ -280,6 +289,7 @@ export {
   gateLogin,
   latestLoginCode,
   loadConfig,
+  mailboxSnapshot,
   mintRunToken,
   readGatePassword,
   redactor

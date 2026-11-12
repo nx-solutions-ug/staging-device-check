@@ -1,17 +1,25 @@
 /**
  * Playwright fixtures for generated specs: `import { test, expect } from '../harness/fixtures.js'`.
- * Run context comes from the runner (env): SDC_HOST (app host), SDC_RUN_DIR (run folder), SDC_TICKET.
+ * Run context comes from the runner (env): SDC_HOST (app host), SDC_RUN_DIR (run folder), SDC_TICKET, and
+ * SDC_MAILBOX = shared (default) | demo — with a live demo the login code lands in the demo's own mailbox.
  * Options set by the spec with `test.use(...)`: `persona`, and for sign-in `loginPath`, `signInSelectors`,
  * `codePattern` (all found on the first local look). The device label is the project name.
  */
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test as base } from '@playwright/test';
-import { gateLogin, latestLoginCode, loadConfig, mintRunToken, readGatePassword } from './lib.js';
+import {
+  gateLogin,
+  latestLoginCode,
+  loadConfig,
+  mailboxSnapshot,
+  mintRunToken,
+  readGatePassword,
+} from './lib.js';
 import { measure, type LayoutOpts } from './measure.js';
 import { shotName } from './names.js';
 import { evaluateRules, type RuleResult } from './rules.js';
-import { signIn, type SignInSelectors } from './signin.js';
+import { NichtPruefbarHier, signIn, type Mailbox, type SignInSelectors } from './signin.js';
 import { withStaging, type Staging } from './staging.js';
 
 export { shotName, slug } from './names.js';
@@ -22,6 +30,13 @@ const need = (name: string): string => {
     throw new Error(`${name} fehlt — die Tests werden vom Plugin-Runner gestartet, nicht direkt.`);
   return v;
 };
+
+function mailbox(): Mailbox {
+  const v = process.env.SDC_MAILBOX || 'shared';
+  if (v !== 'shared' && v !== 'demo')
+    throw new Error(`SDC_MAILBOX muss shared oder demo sein, nicht „${v}“.`);
+  return v;
+}
 
 function settings() {
   const config = loadConfig();
@@ -82,24 +97,36 @@ export const test = base.extend<Options & Fixtures>({
     );
   },
 
-  account: async ({ page, staging, loginPath, signInSelectors, codePattern }, use) => {
+  account: async ({ page, staging, loginPath, signInSelectors, codePattern }, use, testInfo) => {
     const { config, password } = settings();
+    // one local gate session per account() use (this machine only, never the device session)
+    let gate: string | null = null;
+    const gateCookie = async () => (gate ??= (await gateLogin(config.apex, password)).value);
     await use(async (label) => {
       const account = config.accounts.find((a) => a.label === label);
       if (!account) throw new Error(`Testkonto „${label}“ ist im Setup nicht hinterlegt.`);
-      await signIn(page, account, {
-        goto: (path) => staging.goto(path),
-        loginPath,
-        selectors: signInSelectors,
-        runDir: need('SDC_RUN_DIR'),
-        readCode: async (email, since) => {
-          // local gate session (this machine), never the device session
-          const gate = await gateLogin(config.apex, password);
-          return latestLoginCode(config.apex, gate.value, email, since, fetch, undefined, {
-            pattern: codePattern,
-          });
-        },
-      });
+      try {
+        await signIn(page, account, {
+          goto: (path) => staging.goto(path),
+          loginPath,
+          selectors: signInSelectors,
+          runDir: need('SDC_RUN_DIR'),
+          mailbox: mailbox(),
+          codes: {
+            snapshot: async (email) => mailboxSnapshot(config.apex, await gateCookie(), email),
+            read: async (email, known) =>
+              latestLoginCode(config.apex, await gateCookie(), email, known, fetch, undefined, {
+                pattern: codePattern,
+              }),
+          },
+        });
+      } catch (e) {
+        if (e instanceof NichtPruefbarHier) {
+          testInfo.annotations.push({ type: 'nicht prüfbar hier', description: e.message });
+          testInfo.skip(true, e.message);
+        }
+        throw e;
+      }
     });
   },
 

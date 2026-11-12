@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { latestLoginCode } from '../src/mailpit.js';
+import { latestLoginCode, mailboxSnapshot } from '../src/mailpit.js';
 
 const APEX = 'https://staging.example.test';
 const EMAIL = 'qa+b@example.test';
 const COOKIE = 'invented-gate-cookie';
 const SINCE = new Date('2026-11-12T10:00:00.000Z');
+const NONE: ReadonlySet<string> = new Set();
 
 type Mail = { ID: string; Created: string; Text: string };
 
@@ -38,15 +39,38 @@ function clock(start = SINCE.getTime()) {
 }
 
 describe('latestLoginCode', () => {
+  test('a server clock behind ours does not hide the new mail', async () => {
+    // the new mail's Created is EARLIER than the old one's: only the IDs decide
+    const { fetchFn } = mailpit(() => [
+      { ID: 'old', Created: '2026-11-12T10:00:00.000Z', Text: 'Code 111111' },
+      { ID: 'new', Created: '2026-11-12T09:58:30.000Z', Text: 'Code 333333' },
+    ]);
+    const c = clock();
+    expect(
+      await latestLoginCode(APEX, COOKIE, EMAIL, new Set(['old']), fetchFn, c.sleep, {
+        now: c.now,
+      }),
+    ).toBe('333333');
+  });
+
+  test('mailboxSnapshot returns the IDs addressed to the recipient', async () => {
+    const { fetchFn, urls } = mailpit(() => [
+      { ID: 'a', Created: '2026-11-12T09:00:00.000Z', Text: '' },
+      { ID: 'b', Created: '2026-11-12T09:30:00.000Z', Text: '' },
+    ]);
+    expect([...(await mailboxSnapshot(APEX, COOKIE, EMAIL, fetchFn))].sort()).toEqual(['a', 'b']);
+    expect(urls[0]).toContain(encodeURIComponent(`to:"${EMAIL}"`));
+  });
+
   test('ignores mail older than the request', async () => {
     const { fetchFn, urls, cookies } = mailpit(() => [
       { ID: 'old', Created: '2026-11-12T09:59:59.000Z', Text: 'Dein Code: 111111' },
       { ID: 'new', Created: '2026-11-12T10:00:05.000Z', Text: 'Dein Code: 222222' },
     ]);
     const c = clock();
-    expect(
-      await latestLoginCode(APEX, COOKIE, EMAIL, SINCE, fetchFn, c.sleep, { now: c.now }),
-    ).toBe('222222');
+    expect(await latestLoginCode(APEX, COOKIE, EMAIL, NONE, fetchFn, c.sleep, { now: c.now })).toBe(
+      '222222',
+    );
     expect(urls[0]).toBe(
       `${APEX}/mailpit/api/v1/search?query=${encodeURIComponent(`to:"${EMAIL}"`)}&limit=20`,
     );
@@ -63,9 +87,9 @@ describe('latestLoginCode', () => {
       },
     ]);
     const c = clock();
-    expect(
-      await latestLoginCode(APEX, COOKIE, EMAIL, SINCE, fetchFn, c.sleep, { now: c.now }),
-    ).toBe('482913');
+    expect(await latestLoginCode(APEX, COOKIE, EMAIL, NONE, fetchFn, c.sleep, { now: c.now })).toBe(
+      '482913',
+    );
   });
 
   test('a custom pattern from the skill wins', async () => {
@@ -73,7 +97,7 @@ describe('latestLoginCode', () => {
       { ID: 'm', Created: '2026-11-12T10:00:01.000Z', Text: 'Code: AB-12CD' },
     ]);
     const c = clock();
-    const code = await latestLoginCode(APEX, COOKIE, EMAIL, SINCE, fetchFn, c.sleep, {
+    const code = await latestLoginCode(APEX, COOKIE, EMAIL, NONE, fetchFn, c.sleep, {
       now: c.now,
       pattern: /[A-Z]{2}-\d{2}[A-Z]{2}/,
     });
@@ -88,9 +112,9 @@ describe('latestLoginCode', () => {
         ? [{ ID: 'm', Created: '2026-11-12T10:00:07.000Z', Text: 'Code 654321' }]
         : [],
     );
-    expect(
-      await latestLoginCode(APEX, COOKIE, EMAIL, SINCE, fetchFn, c.sleep, { now: c.now }),
-    ).toBe('654321');
+    expect(await latestLoginCode(APEX, COOKIE, EMAIL, NONE, fetchFn, c.sleep, { now: c.now })).toBe(
+      '654321',
+    );
     expect(c.now()).toBeGreaterThanOrEqual(arrivesAt);
   });
 
@@ -99,7 +123,7 @@ describe('latestLoginCode', () => {
     const { fetchFn } = mailpit(() => [
       { ID: 'old', Created: '2026-11-12T09:00:00.000Z', Text: 'Code 111111' },
     ]);
-    const err = await latestLoginCode(APEX, COOKIE, EMAIL, SINCE, fetchFn, c.sleep, {
+    const err = await latestLoginCode(APEX, COOKIE, EMAIL, new Set(['old']), fetchFn, c.sleep, {
       now: c.now,
     }).catch((e) => e);
     expect(err).toBeInstanceOf(Error);
