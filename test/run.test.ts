@@ -9,6 +9,7 @@ import {
   readFileSync,
   readlinkSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -480,7 +481,47 @@ describe('runTests', () => {
     const pid = Number(readFileSync(pidFile, 'utf8'));
     await new Promise((r) => setTimeout(r, 200));
     expect(() => process.kill(pid, 0)).toThrow();
-  });
+  }, 20_000); // a shell that ignores the abort's SIGINT goes at the SIGTERM 10 s later
+
+  test('an abort lets the Playwright reporter write result.json before the group goes', async () => {
+    const h = home();
+    const dir = join(h.root, 'pw');
+    mkdirSync(dir);
+    symlinkSync(join(import.meta.dir, '..', 'node_modules'), join(dir, 'node_modules'), 'dir');
+    writeFileSync(
+      join(dir, 'playwright.config.ts'),
+      `import { defineConfig } from '@playwright/test';
+export default defineConfig({ testDir: '.', testMatch: '*.spec.ts', workers: 1,
+  reporter: [['json', { outputFile: 'result.json' }]] });\n`,
+    );
+    writeFileSync(
+      join(dir, 'long.spec.ts'),
+      `import { writeFileSync } from 'node:fs';
+import { test } from '@playwright/test';
+test('läuft lange', async () => {
+  writeFileSync('started', '1');
+  await new Promise((r) => setTimeout(r, 60_000));
+});\n`,
+    );
+    const stop = new AbortController();
+    const started = setInterval(() => {
+      if (existsSync(join(dir, 'started'))) {
+        clearInterval(started);
+        stop.abort();
+      }
+    }, 100);
+    await realSpawn(
+      join(dir, 'node_modules', '.bin', 'playwright'),
+      ['test'],
+      { cwd: dir, env: { PATH: process.env.PATH, HOME: h.root }, signal: stop.signal },
+      () => {},
+      () => {},
+    );
+    clearInterval(started);
+    expect(existsSync(join(dir, 'result.json'))).toBe(true);
+    const report = JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8'));
+    expect(JSON.stringify(report)).toContain('läuft lange');
+  }, 30_000);
 
   test('a stale yml copy is removed before anything else', async () => {
     const h = home();

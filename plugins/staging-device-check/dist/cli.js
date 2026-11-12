@@ -23314,6 +23314,8 @@ async function runTests(dir, opts, d) {
   }
   return code2;
 }
+var ABORT_TERM_MS = 1e4;
+var ABORT_KILL_MS = 15e3;
 var activeGroups = /* @__PURE__ */ new Set();
 var killGroup = (pid, signal) => {
   try {
@@ -23350,11 +23352,12 @@ var realSpawn = (cmd, args, opts, onStdout, onStderr) => new Promise((resolve2) 
   });
   const pid = child.pid;
   if (pid) activeGroups.add(pid);
-  let hard;
+  const timers = [];
   const onAbort = () => {
     if (!pid) return;
-    killGroup(pid, "SIGTERM");
-    hard = setTimeout(() => killGroup(pid, "SIGKILL"), 5e3);
+    killGroup(pid, "SIGINT");
+    timers.push(setTimeout(() => killGroup(pid, "SIGTERM"), ABORT_TERM_MS));
+    timers.push(setTimeout(() => killGroup(pid, "SIGKILL"), ABORT_KILL_MS));
   };
   if (opts.signal?.aborted) onAbort();
   else opts.signal?.addEventListener("abort", onAbort, { once: true });
@@ -23366,7 +23369,7 @@ var realSpawn = (cmd, args, opts, onStdout, onStderr) => new Promise((resolve2) 
     resolve2(127);
   });
   child.on("close", (c) => {
-    clearTimeout(hard);
+    for (const t of timers) clearTimeout(t);
     opts.signal?.removeEventListener("abort", onAbort);
     if (pid && opts.signal?.aborted) killGroup(pid, "SIGKILL");
     if (pid) activeGroups.delete(pid);

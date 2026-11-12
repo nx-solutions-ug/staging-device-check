@@ -437,6 +437,10 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
   return code;
 }
 
+/** After an abort's SIGINT: SIGTERM after this, SIGKILL after that, to whatever of the SDK group is left. */
+const ABORT_TERM_MS = 10_000;
+const ABORT_KILL_MS = 15_000;
+
 /** Process groups of running SDK children, for a hard exit (second Ctrl+C). */
 const activeGroups = new Set<number>();
 
@@ -482,8 +486,8 @@ export function hardStop(): void {
 
 /**
  * Real process boundary for the CLI. The SDK runs in its own process group (detached), because it starts the
- * Playwright runner and workers as its own children: an abort sends SIGTERM to the whole group, SIGKILL after 5 s,
- * and the run folder is cleaned only once the group has exited.
+ * Playwright runner and workers as its own children: an abort sends SIGINT to the whole group (Playwright then writes
+ * its report), SIGTERM after 10 s, SIGKILL after 15 s, and the run folder is cleaned only once the group has exited.
  */
 export const realSpawn: RunDeps['spawn'] = (cmd, args, opts, onStdout, onStderr) =>
   new Promise((resolve) => {
@@ -495,11 +499,14 @@ export const realSpawn: RunDeps['spawn'] = (cmd, args, opts, onStdout, onStderr)
     });
     const pid = child.pid;
     if (pid) activeGroups.add(pid);
-    let hard: ReturnType<typeof setTimeout> | undefined;
+    const timers: Array<ReturnType<typeof setTimeout>> = [];
     const onAbort = () => {
       if (!pid) return;
-      killGroup(pid, 'SIGTERM');
-      hard = setTimeout(() => killGroup(pid, 'SIGKILL'), 5000);
+      // SIGINT first: Playwright ends the running test and its reporters write result.json; on SIGTERM the whole
+      // group is gone before that. SIGTERM and SIGKILL follow for whatever does not stop.
+      killGroup(pid, 'SIGINT');
+      timers.push(setTimeout(() => killGroup(pid, 'SIGTERM'), ABORT_TERM_MS));
+      timers.push(setTimeout(() => killGroup(pid, 'SIGKILL'), ABORT_KILL_MS));
     };
     if (opts.signal?.aborted) onAbort();
     else opts.signal?.addEventListener('abort', onAbort, { once: true });
@@ -510,7 +517,7 @@ export const realSpawn: RunDeps['spawn'] = (cmd, args, opts, onStdout, onStderr)
       resolve(127);
     });
     child.on('close', (c) => {
-      clearTimeout(hard);
+      for (const t of timers) clearTimeout(t);
       opts.signal?.removeEventListener('abort', onAbort);
       // whatever of the group is left after the leader ended (it no longer holds our pipes) goes too
       if (pid && opts.signal?.aborted) killGroup(pid, 'SIGKILL');
