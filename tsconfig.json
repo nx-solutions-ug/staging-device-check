@@ -16,5 +16,6 @@
     "scripts/**/*",
     "tsup.config.ts",
     "plugins/staging-device-check/workspace/harness/**/*.ts"
-  ]
+  ],
+  "exclude": ["test/live/**"]
 }

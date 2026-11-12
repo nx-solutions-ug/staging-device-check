@@ -1,0 +1,3 @@
+[test]
+# live checks run on BrowserStack through the plugin's runner, never in `bun test`
+pathIgnorePatterns = ["test/live/**"]
