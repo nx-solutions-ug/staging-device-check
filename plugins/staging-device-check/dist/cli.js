@@ -8035,14 +8035,16 @@ function prepare(ticket, host, d) {
 }
 var readMeta = (dir) => JSON.parse(readFileSync4(join5(dir, "run.json"), "utf8"));
 var isIos2 = (deviceName) => /^(iphone|ipad)/i.test(deviceName);
-function narrowedYml(source, devices, buildName) {
+var SECRET_FIELD = /key|pass|secret|token/i;
+function planYml(source, devices, buildName) {
   const doc = (0, import_yaml2.parseDocument)(readFileSync4(source, "utf8"), { schema: "failsafe" });
   const platforms = doc.get("platforms", true);
-  const items = (0, import_yaml2.isSeq)(platforms) ? platforms.items.filter(import_yaml2.isMap) : [];
+  const all = (0, import_yaml2.isSeq)(platforms) ? platforms.items : [];
+  const maps = all.filter(import_yaml2.isMap);
   const chosen = new import_yaml2.YAMLSeq();
   const names = [];
   for (const want of devices) {
-    const p = items.find((x) => {
+    const p = maps.find((x) => {
       const name = x.get("deviceName");
       return typeof name === "string" && isIos2(name) === (want === "iphone");
     });
@@ -8053,18 +8055,26 @@ function narrowedYml(source, devices, buildName) {
     chosen.items.push(p);
     names.push(String(p.get("deviceName")));
   }
+  if (all.length === chosen.items.length)
+    return { inPlace: true, text: "", chosen: names, removed: [] };
   doc.set("platforms", chosen);
   doc.set("buildName", buildName);
   doc.delete("userName");
   doc.delete("accessKey");
-  return { text: doc.toString(), chosen: names };
-}
-function platformNames(source) {
-  const doc = (0, import_yaml2.parseDocument)(readFileSync4(source, "utf8"), { schema: "failsafe" });
-  const platforms = doc.get("platforms", true);
-  return ((0, import_yaml2.isSeq)(platforms) ? platforms.items.filter(import_yaml2.isMap) : []).map(
-    (p) => String(p.get("deviceName") ?? p.get("browserName") ?? "?")
-  );
+  const removed = [];
+  const local = doc.get("browserstackLocalOptions", true);
+  if ((0, import_yaml2.isMap)(local)) {
+    const fields = local.items.map((pair) => ({
+      k: String(pair.key?.value ?? pair.key),
+      v: pair.value?.value
+    }));
+    for (const { k, v } of fields) {
+      if (!SECRET_FIELD.test(k)) continue;
+      if (typeof v === "string" && v) removed.push(v);
+      local.delete(k);
+    }
+  }
+  return { inPlace: false, text: doc.toString(), chosen: names, removed };
 }
 function redactingStream(write, redact) {
   let buf = "";
@@ -8125,10 +8135,13 @@ async function runTests(dir, opts, d) {
   }
   const [user, key] = yml.secretsForRedaction;
   const gate = readGatePassword(d.secret);
-  const secrets = [...yml.secretsForRedaction, ...gate ? [gate] : []];
+  const devices = opts.devices?.length ? opts.devices : ["iphone", "android"];
+  const deviceCount = devices.length;
+  const t = d.now();
+  const buildName = `${meta.ticket} ${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}`;
+  const plan = planYml(config.browserstackYml, devices, buildName);
+  const secrets = [...yml.secretsForRedaction, ...plan.removed, ...gate ? [gate] : []];
   const redact = redactor(secrets);
-  const narrow = opts.devices?.length ? opts.devices : null;
-  const deviceCount = narrow ? narrow.length : platformNames(config.browserstackYml).length;
   const tests = await d.listTests(dir);
   if (!Number.isFinite(tests) || tests < 1) {
     d.err("Keine Tests im Run-Ordner gefunden \u2014 zuerst eine *.spec.ts anlegen.");
@@ -8164,19 +8177,15 @@ async function runTests(dir, opts, d) {
       `Hinweis: Nach dem Lauf bleiben gesch\xE4tzt nur \u2248 ${minutesText(remaining - estimate)} Min \xFCbrig.`
     );
   }
-  const t = d.now();
-  const buildName = `${meta.ticket} ${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}`;
   const ymlCopy = join5(dir, RUN_YML);
   let code = 1;
   try {
+    const chosen = plan.chosen;
     let configFile = config.browserstackYml;
-    let chosen = platformNames(config.browserstackYml);
     const credentials = {};
-    if (narrow) {
-      const n = narrowedYml(config.browserstackYml, narrow, buildName);
-      writeFileSync3(ymlCopy, n.text, { mode: 384 });
+    if (!plan.inPlace) {
+      writeFileSync3(ymlCopy, plan.text, { mode: 384 });
       configFile = ymlCopy;
-      chosen = n.chosen;
       credentials.BROWSERSTACK_USERNAME = user;
       credentials.BROWSERSTACK_ACCESS_KEY = key;
     }

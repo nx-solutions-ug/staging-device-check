@@ -222,7 +222,7 @@ describe('runTests', () => {
     expect(env.BROWSERSTACK_ACCESS_KEY).toBe(FAKE_KEY);
   });
 
-  test('without --devices the SDK reads her own yml and no copy is written', async () => {
+  test('her yml with exactly one iPhone and one Android is read in place, no copy', async () => {
     const h = home();
     let env: NodeJS.ProcessEnv = {};
     let copyDuringRun = true;
@@ -276,6 +276,65 @@ describe('runTests', () => {
     expect(seen).toContain('osVersion: 18.0');
     expect(seen).toContain('osVersion: 13.10');
     expect(seen).not.toContain('Google Pixel 8');
+  });
+
+  test('the default narrows to the first iPhone and the first Android, never a desktop platform', async () => {
+    const h = home();
+    writeFileSync(
+      h.yml,
+      [
+        `userName: ${FAKE_USER}`,
+        `accessKey: ${FAKE_KEY}`,
+        'framework: playwright',
+        'platforms:',
+        '  - os: Windows',
+        '    osVersion: 11',
+        '    browserName: chrome',
+        '  - deviceName: iPhone 16',
+        '    osVersion: 18',
+        '    browserName: safari',
+        '  - deviceName: Samsung Galaxy S23',
+        '    osVersion: 13.0',
+        '    browserName: chrome',
+        '  - deviceName: Google Pixel 8',
+        '    osVersion: 14.0',
+        '    browserName: chrome',
+        'browserstackLocal: false',
+        'browserstackLocalOptions:',
+        `  key: ${FAKE_KEY}`,
+        '  proxyPass: invented-proxy-pass-0001',
+        '  forceLocal: false',
+        '',
+      ].join('\n'),
+      { mode: 0o600 },
+    );
+    let seen = '';
+    let env: NodeJS.ProcessEnv = {};
+    const { d, out } = deps(h.env, {
+      spawn: async (_c, _a, opts) => {
+        env = opts.env;
+        seen = readFileSync(opts.env.BROWSERSTACK_CONFIG_FILE as string, 'utf8');
+        return 0;
+      },
+    });
+    const dir = prepare('ACME-1', 'd-acme-de--main.dating.staging.example.test', d);
+    expect(await runTests(dir, {}, d)).toBe(0);
+    expect(env.BROWSERSTACK_CONFIG_FILE).toBe(join(dir, '.browserstack.run.yml'));
+    expect(seen).toContain('iPhone 16');
+    expect(seen).toContain('Samsung Galaxy S23');
+    expect(seen).not.toContain('Google Pixel 8');
+    expect(seen).not.toContain('Windows');
+    expect(seen).not.toContain(FAKE_KEY);
+    expect(seen).not.toContain('invented-proxy-pass-0001');
+    expect(seen).not.toMatch(/^\s*(key|proxyPass):/m);
+    expect(seen).toContain('forceLocal: false');
+    expect(env.BROWSERSTACK_USERNAME).toBe(FAKE_USER);
+    expect(env.BROWSERSTACK_ACCESS_KEY).toBe(FAKE_KEY);
+    expect(out.join('\n')).toContain('2 Gerät(e)');
+    expect(JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')).devices).toEqual([
+      'iPhone 16',
+      'Samsung Galaxy S23',
+    ]);
   });
 
   test('a stale yml copy is removed before anything else', async () => {

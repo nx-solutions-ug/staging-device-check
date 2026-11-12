@@ -104,21 +104,34 @@ export const readMeta = (dir: string): RunMeta =>
 
 const isIos = (deviceName: string) => /^(iphone|ipad)/i.test(deviceName);
 
-/** Her yml with the platforms narrowed to one iPhone and/or one Android phone and the build named after the run. */
-function narrowedYml(
-  source: string,
-  devices: Device[],
-  buildName: string,
-): { text: string; chosen: string[] } {
+const SECRET_FIELD = /key|pass|secret|token/i;
+
+type YmlPlan = {
+  /** her yml already holds exactly the chosen platforms: the SDK reads it in place, no copy */
+  inPlace: boolean;
+  /** the narrowed copy (no credentials), when not in place */
+  text: string;
+  chosen: string[];
+  /** values removed from browserstackLocalOptions, for the redactor */
+  removed: string[];
+};
+
+/**
+ * The first iPhone and/or the first Android phone of her yml (desktop platforms have no deviceName and are never
+ * chosen). Her file is used in place when it holds exactly these platforms; otherwise a copy holds only them, named
+ * after the run, without userName/accessKey and without key/password fields in browserstackLocalOptions.
+ */
+function planYml(source: string, devices: Device[], buildName: string): YmlPlan {
   // failsafe: every scalar stays the string it was written as (osVersion 13.10 stays 13.10); the platform nodes are
   // filtered, never rebuilt from plain values.
   const doc = parseDocument(readFileSync(source, 'utf8'), { schema: 'failsafe' });
   const platforms = doc.get('platforms', true);
-  const items = isSeq(platforms) ? platforms.items.filter(isMap) : [];
+  const all = isSeq(platforms) ? platforms.items : [];
+  const maps = all.filter(isMap);
   const chosen = new YAMLSeq();
   const names: string[] = [];
   for (const want of devices) {
-    const p = items.find((x) => {
+    const p = maps.find((x) => {
       const name = x.get('deviceName');
       return typeof name === 'string' && isIos(name) === (want === 'iphone');
     });
@@ -129,21 +142,28 @@ function narrowedYml(
     chosen.items.push(p);
     names.push(String(p.get('deviceName')));
   }
+  if (all.length === chosen.items.length)
+    return { inPlace: true, text: '', chosen: names, removed: [] };
   doc.set('platforms', chosen);
   doc.set('buildName', buildName);
   // No copy ever carries credentials: the SDK gets them through the child's env.
   doc.delete('userName');
   doc.delete('accessKey');
-  return { text: doc.toString(), chosen: names };
-}
-
-/** Device (or browser) names of every platform in her yml, for the estimate and run.json. */
-function platformNames(source: string): string[] {
-  const doc = parseDocument(readFileSync(source, 'utf8'), { schema: 'failsafe' });
-  const platforms = doc.get('platforms', true);
-  return (isSeq(platforms) ? platforms.items.filter(isMap) : []).map((p) =>
-    String(p.get('deviceName') ?? p.get('browserName') ?? '?'),
-  );
+  const removed: string[] = [];
+  const local = doc.get('browserstackLocalOptions', true);
+  if (isMap(local)) {
+    // collected first: deleting while iterating the node's own items would skip entries
+    const fields = local.items.map((pair) => ({
+      k: String((pair.key as { value?: unknown })?.value ?? pair.key),
+      v: (pair.value as { value?: unknown } | null)?.value,
+    }));
+    for (const { k, v } of fields) {
+      if (!SECRET_FIELD.test(k)) continue;
+      if (typeof v === 'string' && v) removed.push(v);
+      local.delete(k);
+    }
+  }
+  return { inPlace: false, text: doc.toString(), chosen: names, removed };
 }
 
 /** Line-buffered redaction for a child's output stream. */
@@ -220,12 +240,15 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
   }
   const [user, key] = yml.secretsForRedaction;
   const gate = readGatePassword(d.secret);
-  const secrets = [...yml.secretsForRedaction, ...(gate ? [gate] : [])];
+  // Default: one iPhone and one Android phone from her yml's platforms.
+  const devices: Device[] = opts.devices?.length ? opts.devices : ['iphone', 'android'];
+  const deviceCount = devices.length;
+  const t = d.now();
+  const buildName = `${meta.ticket} ${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+  const plan = planYml(config.browserstackYml, devices, buildName);
+  const secrets = [...yml.secretsForRedaction, ...plan.removed, ...(gate ? [gate] : [])];
   const redact = redactor(secrets);
 
-  // Without --devices the SDK runs every platform of her own yml, read in place.
-  const narrow = opts.devices?.length ? opts.devices : null;
-  const deviceCount = narrow ? narrow.length : platformNames(config.browserstackYml).length;
   const tests = await d.listTests(dir);
   if (!Number.isFinite(tests) || tests < 1) {
     d.err('Keine Tests im Run-Ordner gefunden — zuerst eine *.spec.ts anlegen.');
@@ -267,19 +290,15 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
     );
   }
 
-  const t = d.now();
-  const buildName = `${meta.ticket} ${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
   const ymlCopy = join(dir, RUN_YML);
   let code = 1;
   try {
+    const chosen = plan.chosen;
     let configFile = config.browserstackYml;
-    let chosen = platformNames(config.browserstackYml);
     const credentials: Record<string, string> = {};
-    if (narrow) {
-      const n = narrowedYml(config.browserstackYml, narrow, buildName);
-      writeFileSync(ymlCopy, n.text, { mode: 0o600 });
+    if (!plan.inPlace) {
+      writeFileSync(ymlCopy, plan.text, { mode: 0o600 });
       configFile = ymlCopy;
-      chosen = n.chosen;
       // the copy holds no credentials; the SDK reads its documented env variables, read here from her yml
       credentials.BROWSERSTACK_USERNAME = user;
       credentials.BROWSERSTACK_ACCESS_KEY = key;
