@@ -34,7 +34,7 @@ export type StagingDeps = {
   context: {
     cookies(): Promise<Array<{ name: string }>>;
     addCookies(cookies: CookieParam[]): Promise<void>;
-    clearCookies(filter: { name: string }): Promise<void>;
+    clearCookies(filter?: { name: string }): Promise<void>;
   };
   mint(host: string): Promise<RunTokenLike>;
   /** Where teardown problems are reported (the fixture writes them to the test's annotations and stderr). */
@@ -134,7 +134,12 @@ export async function withStaging(
   token.value = '';
   let removal: string | null = null;
   try {
-    await d.context.clearCookies({ name: token.name });
+    try {
+      await d.context.clearCookies({ name: token.name });
+    } catch {
+      // BrowserStack's iOS shim rejects a name filter (live check); the test is over, so every cookie may go
+      await d.context.clearCookies();
+    }
   } catch (e) {
     removal = `Run-Token konnte nach dem Test nicht aus dem Browser entfernt werden (${(e as Error).message}). Er läuft spätestens nach seiner Laufzeit ab.`;
     d.warn?.(removal);

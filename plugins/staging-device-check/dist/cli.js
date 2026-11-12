@@ -8006,7 +8006,8 @@ export default defineConfig({
   outputDir: './test-results',
   reporter: [['json', { outputFile: 'result.json' }], ['line']],
   retries: 0,
-  use: { trace: 'off', video: 'off', screenshot: 'off' },
+  // hasTouch: Android Chrome on BrowserStack refuses tap() without it
+  use: { trace: 'off', video: 'off', screenshot: 'off', hasTouch: true },
 });
 `;
 function prepare(ticket, host, d) {
@@ -8195,8 +8196,15 @@ async function runTests(dir, opts, d) {
 `
     );
     const stop = new AbortController();
+    let notStarted = false;
+    const outside = () => stop.abort();
+    if (opts.signal?.aborted) stop.abort();
+    else opts.signal?.addEventListener("abort", outside, { once: true });
     const watch = (write) => (line) => {
-      if (NOT_STARTED.test(line)) stop.abort();
+      if (NOT_STARTED.test(line)) {
+        notStarted = true;
+        stop.abort();
+      }
       write(line);
     };
     const out = redactingStream(watch(d.out), redact);
@@ -8224,9 +8232,10 @@ async function runTests(dir, opts, d) {
     );
     out.end();
     err.end();
+    opts.signal?.removeEventListener("abort", outside);
     if (stop.signal.aborted) {
       d.err(
-        `Lauf abgebrochen: ${meta.host} zeigt nicht die App (Umgebung nicht gestartet). Die \xFCbrigen Tests wurden nicht gestartet.`
+        notStarted ? `Lauf abgebrochen: ${meta.host} zeigt nicht die App (Umgebung nicht gestartet). Die \xFCbrigen Tests wurden nicht gestartet.` : "Lauf abgebrochen (Strg+C oder Signal). Die \xFCbrigen Tests wurden nicht gestartet; der Run-Ordner ist aufger\xE4umt."
       );
       if (code === 0) code = 1;
     }
@@ -8498,11 +8507,23 @@ async function main(argv, d) {
         const confirmMinutes = confirm === void 0 ? void 0 : Number(confirm);
         if (confirmMinutes !== void 0 && !Number.isFinite(confirmMinutes))
           throw new UsageError("--confirm-minutes braucht eine Zahl.");
-        return await runTests(
-          dir,
-          { devices, mailbox, confirmMinutes },
-          d
-        );
+        const abort = new AbortController();
+        const release = d.interrupts?.(() => abort.abort()) ?? (() => {
+        });
+        try {
+          return await runTests(
+            dir,
+            {
+              devices,
+              mailbox,
+              confirmMinutes,
+              signal: abort.signal
+            },
+            d
+          );
+        } finally {
+          release();
+        }
       }
       case "report": {
         const [dir, ticket] = args;
@@ -8583,7 +8604,16 @@ function realDeps() {
 `),
     prompt: hiddenPrompt,
     workspaceSource: fileURLToPath(new URL("../workspace/", import.meta.url)),
-    nodeVersion: process.versions.node
+    nodeVersion: process.versions.node,
+    interrupts: (stop) => {
+      const on = () => stop();
+      process.on("SIGINT", on);
+      process.on("SIGTERM", on);
+      return () => {
+        process.off("SIGINT", on);
+        process.off("SIGTERM", on);
+      };
+    }
   };
 }
 function startedDirectly() {

@@ -155,6 +155,20 @@ describe('staging.goto and teardown', () => {
     expect(events.some((e) => e.includes('evil'))).toBe(false);
   });
 
+  test('falls back to clearing all cookies when the device rejects a name filter (iOS shim)', async () => {
+    const { deps } = fakes();
+    const calls: string[] = [];
+    deps.context.clearCookies = async (filter?: { name: string }) => {
+      calls.push(filter ? `filter ${filter.name}` : 'all');
+      if (filter) throw new Error('expectedValue of name: "" does not match providedValue');
+    };
+    const warnings: string[] = [];
+    deps.warn = (m) => void warnings.push(m);
+    await withStaging(deps, async () => {});
+    expect(calls).toEqual(['filter staging_gate_run', 'all']);
+    expect(warnings).toEqual([]);
+  });
+
   test('a failed token removal is reported, not swallowed', async () => {
     const { deps } = fakes();
     deps.context.clearCookies = async () => {

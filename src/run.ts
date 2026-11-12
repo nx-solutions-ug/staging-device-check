@@ -27,7 +27,13 @@ export const TICKET = /^[A-Z][A-Z0-9]+-[0-9]+$/;
 export const MINUTES_PER_TEST = 1.5;
 export type Device = 'iphone' | 'android';
 export type Mailbox = 'shared' | 'demo';
-export type RunOptions = { devices?: Device[]; confirmMinutes?: number; mailbox?: Mailbox };
+export type RunOptions = {
+  devices?: Device[];
+  confirmMinutes?: number;
+  mailbox?: Mailbox;
+  /** aborted from outside (Ctrl+C / SIGTERM in the CLI): the SDK is stopped and the run folder still cleaned */
+  signal?: AbortSignal;
+};
 
 export type RunDeps = {
   env: NodeJS.ProcessEnv;
@@ -70,7 +76,8 @@ export default defineConfig({
   outputDir: './test-results',
   reporter: [['json', { outputFile: 'result.json' }], ['line']],
   retries: 0,
-  use: { trace: 'off', video: 'off', screenshot: 'off' },
+  // hasTouch: Android Chrome on BrowserStack refuses tap() without it
+  use: { trace: 'off', video: 'off', screenshot: 'off', hasTouch: true },
 });
 `;
 
@@ -310,8 +317,15 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
     // The harness throws UmgebungNichtGestartet on the first test; the remaining tests would open device sessions
     // against a host that shows no app, so the SDK is stopped right there.
     const stop = new AbortController();
+    let notStarted = false;
+    const outside = () => stop.abort();
+    if (opts.signal?.aborted) stop.abort();
+    else opts.signal?.addEventListener('abort', outside, { once: true });
     const watch = (write: (line: string) => void) => (line: string) => {
-      if (NOT_STARTED.test(line)) stop.abort();
+      if (NOT_STARTED.test(line)) {
+        notStarted = true;
+        stop.abort();
+      }
       write(line);
     };
     const out = redactingStream(watch(d.out), redact);
@@ -339,9 +353,12 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
     );
     out.end();
     err.end();
+    opts.signal?.removeEventListener('abort', outside);
     if (stop.signal.aborted) {
       d.err(
-        `Lauf abgebrochen: ${meta.host} zeigt nicht die App (Umgebung nicht gestartet). Die übrigen Tests wurden nicht gestartet.`,
+        notStarted
+          ? `Lauf abgebrochen: ${meta.host} zeigt nicht die App (Umgebung nicht gestartet). Die übrigen Tests wurden nicht gestartet.`
+          : 'Lauf abgebrochen (Strg+C oder Signal). Die übrigen Tests wurden nicht gestartet; der Run-Ordner ist aufgeräumt.',
       );
       if (code === 0) code = 1;
     }

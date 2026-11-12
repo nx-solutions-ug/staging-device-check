@@ -82,6 +82,8 @@ describe('prepare', () => {
     expect(config).toContain("testDir: '.'");
     expect(config).toContain("outputFile: 'result.json'");
     expect(config).toContain("trace: 'off'");
+    // Android Chrome on BrowserStack refuses tap() without it (live check)
+    expect(config).toContain('hasTouch: true');
     for (const link of ['node_modules', 'harness']) {
       expect(lstatSync(join(dir, link)).isSymbolicLink()).toBe(true);
       expect(readlinkSync(join(dir, link))).toBe(join(h.ws, link));
@@ -335,6 +337,31 @@ describe('runTests', () => {
       'iPhone 16',
       'Samsung Galaxy S23',
     ]);
+  });
+
+  test('an outside abort (Ctrl+C, SIGTERM) stops the SDK and still cleans the run folder', async () => {
+    const h = home();
+    const outside = new AbortController();
+    let signal: AbortSignal | undefined;
+    const { d, err } = deps(h.env, {
+      spawn: (_c, _a, opts) => {
+        signal = opts.signal;
+        writeFileSync(join(opts.cwd, '.run-tokens'), `${TOKEN}\n`, { mode: 0o600 });
+        writeFileSync(join(opts.cwd, 'partial.txt'), `token ${TOKEN}`);
+        outside.abort();
+        return new Promise((resolve) => {
+          if (opts.signal?.aborted) resolve(143);
+          opts.signal?.addEventListener('abort', () => resolve(143));
+        });
+      },
+    });
+    const dir = prepare('ACME-1', 'd-acme-de--main.dating.staging.example.test', d);
+    expect(await runTests(dir, { signal: outside.signal }, d)).not.toBe(0);
+    expect(signal?.aborted).toBe(true);
+    expect(err.join('\n')).toContain('Lauf abgebrochen');
+    expect(err.join('\n')).not.toContain('Umgebung nicht gestartet');
+    expect(existsSync(join(dir, '.run-tokens'))).toBe(false);
+    expect(readFileSync(join(dir, 'partial.txt'), 'utf8')).not.toContain(TOKEN);
   });
 
   test('a stale yml copy is removed before anything else', async () => {

@@ -51,6 +51,8 @@ export type CliDeps = RunDeps & {
   /** the plugin's workspace template (next to dist/) */
   workspaceSource: string;
   nodeVersion: string;
+  /** calls `stop` on Ctrl+C / SIGTERM while a run is going; returns the unregister function */
+  interrupts?: (stop: () => void) => () => void;
 };
 
 const MIN_PASSWORD = 16;
@@ -299,11 +301,22 @@ export async function main(argv: string[], d: CliDeps): Promise<number> {
         const confirmMinutes = confirm === undefined ? undefined : Number(confirm);
         if (confirmMinutes !== undefined && !Number.isFinite(confirmMinutes))
           throw new UsageError('--confirm-minutes braucht eine Zahl.');
-        return await runTests(
-          dir,
-          { devices: devices as Device[] | undefined, mailbox: mailbox as Mailbox, confirmMinutes },
-          d,
-        );
+        const abort = new AbortController();
+        const release = d.interrupts?.(() => abort.abort()) ?? (() => {});
+        try {
+          return await runTests(
+            dir,
+            {
+              devices: devices as Device[] | undefined,
+              mailbox: mailbox as Mailbox,
+              confirmMinutes,
+              signal: abort.signal,
+            },
+            d,
+          );
+        } finally {
+          release();
+        }
       }
       case 'report': {
         const [dir, ticket] = args;
@@ -385,6 +398,16 @@ export function realDeps(): CliDeps {
     prompt: hiddenPrompt,
     workspaceSource: fileURLToPath(new URL('../workspace/', import.meta.url)),
     nodeVersion: process.versions.node,
+    interrupts: (stop) => {
+      // the first signal stops the SDK and lets the run folder be cleaned; Node's default exit would skip that
+      const on = () => stop();
+      process.on('SIGINT', on);
+      process.on('SIGTERM', on);
+      return () => {
+        process.off('SIGINT', on);
+        process.off('SIGTERM', on);
+      };
+    },
   };
 }
 
