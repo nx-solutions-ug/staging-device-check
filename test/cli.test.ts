@@ -62,6 +62,13 @@ function deps(env: NodeJS.ProcessEnv, over: Partial<CliDeps> = {}) {
     prompt: async () => '',
     workspaceSource: new URL('../plugins/staging-device-check/workspace', import.meta.url).pathname,
     nodeVersion: '26.13.1',
+    nodeFrom: 'eigene Kopie',
+    readStdin: async () => '',
+    mcpStart: () => ({
+      status: 0,
+      stdout: 'startet über eigene Kopie (/x/node/bin)\n',
+      stderr: '',
+    }),
     ...over,
   };
   return { d, out, err, spawned, text: () => [...out, ...err].join('\n') };
@@ -155,41 +162,86 @@ describe('doctor', () => {
     expect(code).toBe(0);
   });
 
-  test('doctor flags a Playwright MCP config that is missing, unpinned or without the gate session', async () => {
+  test('doctor flags a Playwright MCP start that is missing, unpinned, without the gate session or without Node', async () => {
     const h = home();
     const plugin = join(h.root, 'plugin');
     mkdirSync(join(plugin, 'workspace'), { recursive: true });
+    mkdirSync(join(plugin, 'scripts'));
+    let start = { status: 0, stdout: 'startet über eigene Kopie (/x/node/bin)\n', stderr: '' };
     const check = async () => {
-      const { d, out } = deps(h.env, { workspaceSource: join(plugin, 'workspace') });
+      const { d, out } = deps(h.env, {
+        workspaceSource: join(plugin, 'workspace'),
+        mcpStart: () => start,
+      });
       await main(['doctor', '--json'], d);
       return (
         JSON.parse(out.join('\n')) as Array<{ status: string; label: string; detail: string }>
       ).find((x) => x.label === 'Playwright-MCP');
     };
     expect((await check())?.status).toBe('fehlt');
-    const server = (args: string[]) =>
+    const config = (server: object) =>
       writeFileSync(
         join(plugin, '.mcp.json'),
-        JSON.stringify({ mcpServers: { playwright: { command: 'npx', args } } }),
+        JSON.stringify({ mcpServers: { playwright: server } }),
       );
-    server([
-      '-y',
-      '@playwright/mcp@latest',
-      '--isolated',
-      '--storage-state',
-      '/x/staging-device-check/gate-state.json',
-    ]);
+    config({ command: 'npx', args: ['-y', '@playwright/mcp@0.0.84'] });
+    expect((await check())?.detail).toContain('scripts/playwright-mcp');
+    config({ command: 'sh', args: ['${CLAUDE_PLUGIN_ROOT}/scripts/playwright-mcp'] });
+    const script = (body: string) => writeFileSync(join(plugin, 'scripts', 'playwright-mcp'), body);
+    script(
+      'exec npx -y @playwright/mcp@latest --storage-state "$d/staging-device-check/gate-state.json"',
+    );
     expect((await check())?.detail).toContain('Version');
-    server(['-y', '@playwright/mcp@0.0.84', '--isolated']);
+    script('exec npx -y @playwright/mcp@0.0.84 --isolated');
     expect((await check())?.detail).toContain('gate-state.json');
-    server([
-      '-y',
-      '@playwright/mcp@0.0.84',
-      '--isolated',
-      '--storage-state',
-      '/x/staging-device-check/gate-state.json',
-    ]);
-    expect((await check())?.status).toBe('ok');
+    script(
+      'exec npx -y @playwright/mcp@0.0.84 --isolated --storage-state "$d/staging-device-check/gate-state.json"',
+    );
+    expect(await check()).toMatchObject({ status: 'ok' });
+    expect((await check())?.detail).toContain('eigene Kopie');
+    start = { status: 127, stdout: '', stderr: 'Node fehlt: Bitte zuerst das Setup ausführen.\n' };
+    expect(await check()).toMatchObject({ status: 'fehlt' });
+    expect((await check())?.detail).toContain('Node fehlt');
+  });
+
+  test('doctor names where Node comes from, and hints when the own copy is missing', async () => {
+    const h = home();
+    const own = deps(h.env);
+    await main(['doctor'], own.d);
+    expect(own.out.join('\n')).toMatch(/^ok Node 26\.13\.1 \(eigene Kopie\)/m);
+    const system = deps(h.env, { nodeFrom: 'System-Node' });
+    await main(['doctor'], system.d);
+    expect(system.out.join('\n')).toMatch(/^hinweis Node-Kopie/m);
+  });
+});
+
+describe('set-secret --stdin (the native dialog pipes the value in)', () => {
+  test('stores the first line and prints only where, never the value', async () => {
+    const h = home();
+    const { d, out, err, text } = deps(h.env, { readStdin: async () => `${GATE_PW}\n` });
+    expect(await main(['set-secret', '--stdin'], d)).toBe(0);
+    expect(out).toEqual(['gespeichert (Datei)']);
+    expect(err).toEqual([]);
+    expect(text()).not.toContain(GATE_PW);
+    expect(
+      readFileSync(
+        join(h.env.XDG_CONFIG_HOME as string, 'staging-device-check', 'gate-password'),
+        'utf8',
+      ).trim(),
+    ).toBe(GATE_PW);
+  });
+
+  test('empty input (dialog cancelled) and a short value store nothing', async () => {
+    for (const input of ['', '\n', 'short-pass\n']) {
+      const h = home();
+      const { d, err, text } = deps(h.env, { readStdin: async () => input });
+      expect(await main(['set-secret', '--stdin'], d)).toBe(1);
+      expect(err.join('\n')).toMatch(/Nichts gespeichert/i);
+      expect(text()).not.toContain('short-pass');
+      expect(
+        existsSync(join(h.env.XDG_CONFIG_HOME as string, 'staging-device-check', 'gate-password')),
+      ).toBe(false);
+    }
   });
 });
 

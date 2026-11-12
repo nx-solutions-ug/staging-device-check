@@ -3999,10 +3999,10 @@ var require_resolve_block_map = __commonJS({
       let offset = bm.offset;
       let commentEnd = null;
       for (const collItem of bm.items) {
-        const { start, key, sep, value } = collItem;
+        const { start, key, sep: sep2, value } = collItem;
         const keyProps = resolveProps.resolveProps(start, {
           indicator: "explicit-key-ind",
-          next: key ?? sep?.[0],
+          next: key ?? sep2?.[0],
           offset,
           onError,
           parentIndent: bm.indent,
@@ -4016,7 +4016,7 @@ var require_resolve_block_map = __commonJS({
             else if ("indent" in key && key.indent !== bm.indent)
               onError(offset, "BAD_INDENT", startColMsg);
           }
-          if (!keyProps.anchor && !keyProps.tag && !sep) {
+          if (!keyProps.anchor && !keyProps.tag && !sep2) {
             commentEnd = keyProps.end;
             if (keyProps.comment) {
               if (map.comment)
@@ -4040,7 +4040,7 @@ var require_resolve_block_map = __commonJS({
         ctx.atKey = false;
         if (utilMapIncludes.mapIncludes(ctx, map.items, keyNode))
           onError(keyStart, "DUPLICATE_KEY", "Map keys must be unique");
-        const valueProps = resolveProps.resolveProps(sep ?? [], {
+        const valueProps = resolveProps.resolveProps(sep2 ?? [], {
           indicator: "map-value-ind",
           next: value,
           offset: keyNode.range[2],
@@ -4056,7 +4056,7 @@ var require_resolve_block_map = __commonJS({
             if (ctx.options.strict && keyProps.start < valueProps.found.offset - 1024)
               onError(keyNode.range, "KEY_OVER_1024_CHARS", "The : indicator must be at most 1024 chars after the start of an implicit block mapping key");
           }
-          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : composeEmptyNode(ctx, offset, sep, null, valueProps, onError);
+          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : composeEmptyNode(ctx, offset, sep2, null, valueProps, onError);
           if (ctx.schema.compat)
             utilFlowIndentCheck.flowIndentCheck(bm.indent, value, onError);
           offset = valueNode.range[2];
@@ -4147,7 +4147,7 @@ var require_resolve_end = __commonJS({
       let comment = "";
       if (end) {
         let hasSpace = false;
-        let sep = "";
+        let sep2 = "";
         for (const token of end) {
           const { source, type } = token;
           switch (type) {
@@ -4161,13 +4161,13 @@ var require_resolve_end = __commonJS({
               if (!comment)
                 comment = cb;
               else
-                comment += sep + cb;
-              sep = "";
+                comment += sep2 + cb;
+              sep2 = "";
               break;
             }
             case "newline":
               if (comment)
-                sep += source;
+                sep2 += source;
               hasSpace = true;
               break;
             default:
@@ -4210,18 +4210,18 @@ var require_resolve_flow_collection = __commonJS({
       let offset = fc.offset + fc.start.source.length;
       for (let i = 0; i < fc.items.length; ++i) {
         const collItem = fc.items[i];
-        const { start, key, sep, value } = collItem;
+        const { start, key, sep: sep2, value } = collItem;
         const props = resolveProps.resolveProps(start, {
           flow: fcName,
           indicator: "explicit-key-ind",
-          next: key ?? sep?.[0],
+          next: key ?? sep2?.[0],
           offset,
           onError,
           parentIndent: fc.indent,
           startOnNewline: false
         });
         if (!props.found) {
-          if (!props.anchor && !props.tag && !sep && !value) {
+          if (!props.anchor && !props.tag && !sep2 && !value) {
             if (i === 0 && props.comma)
               onError(props.comma, "UNEXPECTED_TOKEN", `Unexpected , in ${fcName}`);
             else if (i < fc.items.length - 1)
@@ -4275,8 +4275,8 @@ var require_resolve_flow_collection = __commonJS({
             }
           }
         }
-        if (!isMap2 && !sep && !props.found) {
-          const valueNode = value ? composeNode(ctx, value, props, onError) : composeEmptyNode(ctx, props.end, sep, null, props, onError);
+        if (!isMap2 && !sep2 && !props.found) {
+          const valueNode = value ? composeNode(ctx, value, props, onError) : composeEmptyNode(ctx, props.end, sep2, null, props, onError);
           coll.items.push(valueNode);
           offset = valueNode.range[2];
           if (isBlock(value))
@@ -4288,7 +4288,7 @@ var require_resolve_flow_collection = __commonJS({
           if (isBlock(key))
             onError(keyNode.range, "BLOCK_IN_FLOW", blockMsg);
           ctx.atKey = false;
-          const valueProps = resolveProps.resolveProps(sep ?? [], {
+          const valueProps = resolveProps.resolveProps(sep2 ?? [], {
             flow: fcName,
             indicator: "map-value-ind",
             next: value,
@@ -4299,8 +4299,8 @@ var require_resolve_flow_collection = __commonJS({
           });
           if (valueProps.found) {
             if (!isMap2 && !props.found && ctx.options.strict) {
-              if (sep)
-                for (const st of sep) {
+              if (sep2)
+                for (const st of sep2) {
                   if (st === valueProps.found)
                     break;
                   if (st.type === "newline") {
@@ -4317,7 +4317,7 @@ var require_resolve_flow_collection = __commonJS({
             else
               onError(valueProps.start, "MISSING_CHAR", `Missing , or : between ${fcName} items`);
           }
-          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep, null, valueProps, onError) : null;
+          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep2, null, valueProps, onError) : null;
           if (valueNode) {
             if (isBlock(value))
               onError(valueNode.range, "BLOCK_IN_FLOW", blockMsg);
@@ -4497,7 +4497,7 @@ var require_resolve_block_scalar = __commonJS({
           chompStart = i + 1;
       }
       let value = "";
-      let sep = "";
+      let sep2 = "";
       let prevMoreIndented = false;
       for (let i = 0; i < contentStart; ++i)
         value += lines[i][0].slice(trimIndent) + "\n";
@@ -4514,24 +4514,24 @@ var require_resolve_block_scalar = __commonJS({
           indent = "";
         }
         if (type === Scalar.Scalar.BLOCK_LITERAL) {
-          value += sep + indent.slice(trimIndent) + content;
-          sep = "\n";
+          value += sep2 + indent.slice(trimIndent) + content;
+          sep2 = "\n";
         } else if (indent.length > trimIndent || content[0] === "	") {
-          if (sep === " ")
-            sep = "\n";
-          else if (!prevMoreIndented && sep === "\n")
-            sep = "\n\n";
-          value += sep + indent.slice(trimIndent) + content;
-          sep = "\n";
+          if (sep2 === " ")
+            sep2 = "\n";
+          else if (!prevMoreIndented && sep2 === "\n")
+            sep2 = "\n\n";
+          value += sep2 + indent.slice(trimIndent) + content;
+          sep2 = "\n";
           prevMoreIndented = true;
         } else if (content === "") {
-          if (sep === "\n")
+          if (sep2 === "\n")
             value += "\n";
           else
-            sep = "\n";
+            sep2 = "\n";
         } else {
-          value += sep + content;
-          sep = " ";
+          value += sep2 + content;
+          sep2 = " ";
           prevMoreIndented = false;
         }
       }
@@ -4714,25 +4714,25 @@ var require_resolve_flow_scalar = __commonJS({
         trimBoth = /^[ \t]+|[ \t]+$/g;
       }
       let res = match[1].replace(trimEnd, "");
-      let sep = " ";
+      let sep2 = " ";
       let pos = line.lastIndex;
       while (match = line.exec(source)) {
         const lm = match[1].replace(trimBoth, "");
         if (lm === "") {
-          if (sep === "\n")
-            res += sep;
+          if (sep2 === "\n")
+            res += sep2;
           else
-            sep = "\n";
+            sep2 = "\n";
         } else {
-          res += sep + lm;
-          sep = " ";
+          res += sep2 + lm;
+          sep2 = " ";
         }
         pos = line.lastIndex;
       }
       const last = /[ \t]*(.*)/sy;
       last.lastIndex = pos;
       match = last.exec(source);
-      return res + sep + (match?.[1] ?? "");
+      return res + sep2 + (match?.[1] ?? "");
     }
     function doubleQuotedValue(source, onError) {
       let res = "";
@@ -5542,14 +5542,14 @@ var require_cst_stringify = __commonJS({
         }
       }
     }
-    function stringifyItem({ start, key, sep, value }) {
+    function stringifyItem({ start, key, sep: sep2, value }) {
       let res = "";
       for (const st of start)
         res += st.source;
       if (key)
         res += stringifyToken(key);
-      if (sep)
-        for (const st of sep)
+      if (sep2)
+        for (const st of sep2)
           res += st.source;
       if (value)
         res += stringifyToken(value);
@@ -6716,18 +6716,18 @@ var require_parser = __commonJS({
         if (this.type === "map-value-ind") {
           const prev = getPrevProps(this.peek(2));
           const start = getFirstKeyStartProps(prev);
-          let sep;
+          let sep2;
           if (scalar.end) {
-            sep = scalar.end;
-            sep.push(this.sourceToken);
+            sep2 = scalar.end;
+            sep2.push(this.sourceToken);
             delete scalar.end;
           } else
-            sep = [this.sourceToken];
+            sep2 = [this.sourceToken];
           const map = {
             type: "block-map",
             offset: scalar.offset,
             indent: scalar.indent,
-            items: [{ start, key: scalar, sep }]
+            items: [{ start, key: scalar, sep: sep2 }]
           };
           this.onKeyLine = true;
           this.stack[this.stack.length - 1] = map;
@@ -6880,15 +6880,15 @@ var require_parser = __commonJS({
                 } else if (isFlowToken(it.key) && !includesToken(it.sep, "newline")) {
                   const start2 = getFirstKeyStartProps(it.start);
                   const key = it.key;
-                  const sep = it.sep;
-                  sep.push(this.sourceToken);
+                  const sep2 = it.sep;
+                  sep2.push(this.sourceToken);
                   delete it.key;
                   delete it.sep;
                   this.stack.push({
                     type: "block-map",
                     offset: this.offset,
                     indent: this.indent,
-                    items: [{ start: start2, key, sep }]
+                    items: [{ start: start2, key, sep: sep2 }]
                   });
                 } else if (start.length > 0) {
                   it.sep = it.sep.concat(start, this.sourceToken);
@@ -7082,13 +7082,13 @@ var require_parser = __commonJS({
             const prev = getPrevProps(parent);
             const start = getFirstKeyStartProps(prev);
             fixFlowSeqItems(fc);
-            const sep = fc.end.splice(1, fc.end.length);
-            sep.push(this.sourceToken);
+            const sep2 = fc.end.splice(1, fc.end.length);
+            sep2.push(this.sourceToken);
             const map = {
               type: "block-map",
               offset: fc.offset,
               indent: fc.indent,
-              items: [{ start, key: fc, sep }]
+              items: [{ start, key: fc, sep: sep2 }]
             };
             this.onKeyLine = true;
             this.stack[this.stack.length - 1] = map;
@@ -7378,7 +7378,8 @@ import {
   rmSync as rmSync4,
   writeFileSync as writeFileSync4
 } from "fs";
-import { join as join6 } from "path";
+import { spawnSync as spawnSync2 } from "child_process";
+import { delimiter, dirname as dirname2, join as join6, sep } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
 // src/bsyml.ts
@@ -22947,7 +22948,7 @@ var realSecretDeps = () => ({
   env: process.env,
   platform: process.platform,
   run: (cmd, args, input) => {
-    const r = spawnSync(cmd, args, { input, encoding: "utf8", timeout: 1e4 });
+    const r = spawnSync(cmd, args, { input, encoding: "utf8", timeout: 12e4 });
     return { status: r.error ? 127 : r.status ?? 1, stdout: r.stdout ?? "" };
   }
 });
@@ -23425,6 +23426,27 @@ function flag(args, name) {
   if (!v || v.startsWith("--")) throw new UsageError(`--${name} braucht einen Wert.`);
   return v;
 }
+async function setSecretFromStdin(d) {
+  const value = (await d.readStdin()).split(/\r?\n/)[0] ?? "";
+  if (!value) {
+    d.err("Keine Eingabe (Dialog abgebrochen). Nichts gespeichert.");
+    return 1;
+  }
+  if (value.length < MIN_PASSWORD) {
+    d.err(
+      `Das Passwort ist k\xFCrzer als ${MIN_PASSWORD} Zeichen \u2014 so kurz ist das Staging-Passwort nie. Nichts gespeichert.`
+    );
+    return 1;
+  }
+  try {
+    const where = writeGatePassword(value, d.secret);
+    d.out(where === "keychain" ? "gespeichert (Schl\xFCsselbund)" : "gespeichert (Datei)");
+    return 0;
+  } catch (e) {
+    d.err(`Nicht gespeichert: ${e.message}`);
+    return 1;
+  }
+}
 async function setSecret(d) {
   const first = await d.prompt("Staging-Passwort (Eingabe bleibt unsichtbar): ");
   if (first.length < MIN_PASSWORD) {
@@ -23451,8 +23473,14 @@ async function doctor(d, json) {
   const checks = [];
   const add = (status, label, detail = "") => checks.push({ status, label, detail });
   const major = Number(d.nodeVersion.split(".")[0]);
-  if (major >= 26) add("ok", `Node ${d.nodeVersion}`);
+  if (major >= 26) add("ok", `Node ${d.nodeVersion} (${d.nodeFrom})`);
   else add("fehlt", `Node ${d.nodeVersion}`, "Node 26 oder neuer wird gebraucht.");
+  if (d.nodeFrom !== "eigene Kopie")
+    add(
+      "hinweis",
+      "Node-Kopie",
+      "Die eigene Node-Kopie des Plugins fehlt \u2014 Setup Schritt 1 installiert sie (ohne Administrator-Rechte)."
+    );
   let config = null;
   try {
     config = loadConfig(d.env);
@@ -23504,7 +23532,7 @@ async function doctor(d, json) {
   if (existsSync5(join6(workspaceDir(d.env), "node_modules", ".bin", "browserstack-node-sdk")))
     add("ok", "Test-Arbeitsbereich");
   else add("fehlt", "Test-Arbeitsbereich", "Bitte \u201Einstall-workspace\u201C ausf\xFChren.");
-  const mcp = mcpCheck(join6(d.workspaceSource, "..", ".mcp.json"));
+  const mcp = mcpCheck(join6(d.workspaceSource, ".."), d);
   add(mcp.ok ? "ok" : "fehlt", "Playwright-MCP", mcp.detail);
   const state = gateStatePath(d.env);
   let gateUntil = null;
@@ -23525,10 +23553,10 @@ async function doctor(d, json) {
   else for (const c of checks) d.out(`${c.status} ${c.label}${c.detail ? ` \u2014 ${c.detail}` : ""}`);
   return checks.some((c) => c.status === "fehlt") ? 1 : 0;
 }
-function mcpCheck(file) {
+function mcpCheck(plugin, d) {
   let server;
   try {
-    server = JSON.parse(readFileSync5(file, "utf8")).mcpServers?.playwright;
+    server = JSON.parse(readFileSync5(join6(plugin, ".mcp.json"), "utf8")).mcpServers?.playwright;
   } catch {
     return {
       ok: false,
@@ -23536,15 +23564,32 @@ function mcpCheck(file) {
     };
   }
   if (!server) return { ok: false, detail: "In der .mcp.json fehlt der Server \u201Eplaywright\u201C." };
-  const all = [server.command ?? "", ...server.args ?? []].join(" ");
-  const version = /@playwright\/mcp@(\d+\.\d+\.\d+)(?=["'\s]|$)/.exec(all)?.[1];
+  if (server.command !== "sh" || !(server.args?.[0] ?? "").endsWith("/scripts/playwright-mcp"))
+    return {
+      ok: false,
+      detail: "Der Server startet nicht \xFCber scripts/playwright-mcp \u2014 Plugin neu installieren."
+    };
+  const scriptPath = join6(plugin, "scripts", "playwright-mcp");
+  let script = "";
+  try {
+    script = readFileSync5(scriptPath, "utf8");
+  } catch {
+    return { ok: false, detail: "scripts/playwright-mcp fehlt \u2014 Plugin neu installieren." };
+  }
+  const version = /@playwright\/mcp@(\d+\.\d+\.\d+)(?=["'\s]|$)/.exec(script)?.[1];
   if (!version) return { ok: false, detail: "@playwright/mcp hat keine feste Version." };
-  if (!all.includes("--storage-state") || !all.includes("staging-device-check/gate-state.json"))
+  if (!script.includes("--storage-state") || !script.includes("staging-device-check/gate-state.json"))
     return {
       ok: false,
       detail: "Der Server startet nicht mit der Gate-Sitzung (--storage-state \u2026/gate-state.json)."
     };
-  return { ok: true, detail: `@playwright/mcp ${version}, mit der Gate-Sitzung` };
+  const start = d.mcpStart(scriptPath);
+  if (start.status !== 0)
+    return { ok: false, detail: start.stderr.trim() || "Der Server findet kein Node." };
+  return {
+    ok: true,
+    detail: `@playwright/mcp ${version}, mit der Gate-Sitzung, ${start.stdout.trim()}`
+  };
 }
 async function installWorkspace(d) {
   const dest = workspaceDir(d.env);
@@ -23617,7 +23662,7 @@ async function main(argv, d) {
   try {
     switch (cmd) {
       case "set-secret":
-        return await setSecret(d);
+        return args.includes("--stdin") ? await setSecretFromStdin(d) : await setSecret(d);
       case "doctor":
         return await doctor(d, args.includes("--json"));
       case "install-workspace":
@@ -23748,7 +23793,10 @@ function hiddenPrompt(question) {
   });
 }
 function realDeps() {
-  const env = process.env;
+  const env = {
+    ...process.env,
+    PATH: `${dirname2(process.execPath)}${delimiter}${process.env.PATH ?? ""}`
+  };
   return {
     env,
     secret: realSecretDeps(),
@@ -23763,6 +23811,16 @@ function realDeps() {
     prompt: hiddenPrompt,
     workspaceSource: fileURLToPath(new URL("../workspace/", import.meta.url)),
     nodeVersion: process.versions.node,
+    nodeFrom: process.execPath.startsWith(join6(stateDir(process.env), "node") + sep) ? "eigene Kopie" : "System-Node",
+    readStdin: async () => {
+      let all = "";
+      for await (const chunk of process.stdin) all += String(chunk);
+      return all;
+    },
+    mcpStart: (script) => {
+      const r = spawnSync2("sh", [script, "--check"], { encoding: "utf8", timeout: 15e3 });
+      return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+    },
     interrupts: (stop, hard) => {
       let count = 0;
       const on = () => {

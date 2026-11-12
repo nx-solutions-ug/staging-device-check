@@ -17,7 +17,8 @@ export const realSecretDeps = (): SecretDeps => ({
   env: process.env,
   platform: process.platform,
   run: (cmd, args, input) => {
-    const r = spawnSync(cmd, args, { input, encoding: 'utf8', timeout: 10_000 });
+    // generous: unlocking the keychain or wallet can show its own prompt first
+    const r = spawnSync(cmd, args, { input, encoding: 'utf8', timeout: 120_000 });
     return { status: r.error ? 127 : (r.status ?? 1), stdout: r.stdout ?? '' };
   },
 });

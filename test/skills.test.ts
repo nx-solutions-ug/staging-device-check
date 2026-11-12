@@ -29,11 +29,12 @@ describe('skills', () => {
       // English description with German trigger sentences for the tester
       expect(fm.description as string).toMatch(/Use when/);
       expect(fm.description as string).toMatch(/"[^"]*(teste|einrichten)[^"]*"/);
-      const used = [...md.matchAll(/cli\.js"? ([a-z-]+)/g)].map((m) => m[1]);
+      const used = [...md.matchAll(/scripts\/sdc"? ([a-z-]+)/g)].map((m) => m[1]);
       expect(used.length).toBeGreaterThan(0);
       for (const cmd of used) expect(COMMANDS as readonly string[]).toContain(cmd);
-      // the CLI is always reached through the plugin root, which Claude Code substitutes in skill content
-      for (const m of md.matchAll(/node "?([^"\s]*)\/dist\/cli\.js/g))
+      // the CLI is always reached through the launcher in the plugin root (its own Node), never a bare `node`
+      expect(md).not.toMatch(/dist\/cli\.js/);
+      for (const m of md.matchAll(/sh "?([^"\s]*)\/scripts\/sdc/g))
         expect(m[1]).toBe('${CLAUDE_PLUGIN_ROOT}');
     }
   });
@@ -70,10 +71,17 @@ describe('skills', () => {
     expect(example).not.toContain('annotations.push');
   });
 
-  test('setup sends set-secret to her own terminal, never through the chat', () => {
+  test('setup brings its own Node and asks for the password in a native dialog, the terminal only as fallback', () => {
     const md = read('skills', 'setup', 'SKILL.md');
+    expect(md).toContain('sh "${CLAUDE_PLUGIN_ROOT}/scripts/install-node.sh"');
+    expect(md).not.toMatch(/node --version|Node 26 oder neuer/);
+    expect(md).toContain('sh "${CLAUDE_PLUGIN_ROOT}/scripts/ask-password.sh"');
+    expect(md).toContain('600000');
+    // the terminal path only when the dialog script exits 3
+    expect(md).toMatch(/exits? (with )?(code )?3/i);
     expect(md).toContain('set-secret');
-    expect(md).toMatch(/Terminal/);
+    expect(md).toMatch(/\/mcp/);
+    expect(md).toMatch(/neu starten|restart/i);
     expect(md).toContain('doctor');
     expect(md).toContain('install-workspace');
     expect(md).toContain('local-state');
@@ -84,8 +92,8 @@ describe('skills', () => {
   test('tests-e2e names the settings file and builds the host through the CLI', () => {
     const md = read('skills', 'tests-e2e', 'SKILL.md');
     expect(md).toContain('${XDG_CONFIG_HOME:-$HOME/.config}/staging-device-check/config.json');
-    expect(md).toContain('cli.js" host');
-    expect(md).toContain('cli.js" doctor');
+    expect(md).toContain('sdc" host');
+    expect(md).toContain('sdc" doctor');
     // the example asserts concrete rule outcomes, not just "not failed"
     expect(md).not.toContain(".not.toBe('nicht bestanden')");
   });
@@ -131,35 +139,40 @@ describe('skills', () => {
   });
 });
 
-describe('.mcp.json', () => {
-  const mcp = () =>
-    JSON.parse(read('.mcp.json')) as {
-      mcpServers: Record<string, { command: string; args: string[] }>;
-    };
+describe('.mcp.json and scripts/playwright-mcp', () => {
+  const script = () => read('scripts', 'playwright-mcp');
 
-  test('.mcp.json pins @playwright/mcp', () => {
-    const s = mcp().mcpServers.playwright;
-    expect(s).toBeDefined();
-    const all = [s.command, ...s.args].join(' ');
-    expect(all).toMatch(/@playwright\/mcp@\d+\.\d+\.\d+(?!\S*[\^~*x])/);
+  test('.mcp.json starts the script through sh, nothing from PATH', () => {
+    const server = (JSON.parse(read('.mcp.json')) as { mcpServers: Record<string, unknown> })
+      .mcpServers.playwright;
+    expect(server).toEqual({
+      command: 'sh',
+      args: ['${CLAUDE_PLUGIN_ROOT}/scripts/playwright-mcp'],
+    });
   });
 
-  test('starts with the gate storage state, isolated, at phone size', () => {
-    const all = [mcp().mcpServers.playwright.command, ...mcp().mcpServers.playwright.args].join(
-      ' ',
+  test('the script pins @playwright/mcp', () => {
+    expect(script()).toMatch(/@playwright\/mcp@\d+\.\d+\.\d+(?!\S*[\^~*x])/);
+  });
+
+  test('starts with the gate storage state, isolated, at phone size, through the found Node', () => {
+    const s = script();
+    expect(s).toContain('--isolated');
+    expect(s).toContain(
+      '--storage-state "${XDG_DATA_HOME:-$HOME/.local/share}/staging-device-check/gate-state.json"',
     );
-    expect(all).toContain('--isolated');
-    expect(all).toContain('--storage-state');
-    expect(all).toContain(
-      '${XDG_DATA_HOME:-$HOME/.local/share}/staging-device-check/gate-state.json',
-    );
-    expect(all).toContain('--viewport-size 393x852');
+    expect(s).toContain('--viewport-size 393x852');
+    expect(s).toContain('"$SDC_NODE_BIN/npx"');
   });
 });
 
 describe('README', () => {
   test('German README for the tester', () => {
     const md = read('README.md');
+    // no Node to install, no terminal on a Mac
+    expect(md).toMatch(/kein Node/i);
+    expect(md).toMatch(/kein(e|en)? Terminal/i);
+    expect(md).not.toMatch(/Node 26 oder neuer/);
     expect(md).toContain('/plugin marketplace add nx-solutions-ug/staging-device-check');
     for (const w of [
       'bestanden',

@@ -1,5 +1,5 @@
 /**
- * `node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" <command>` — the plugin's CLI. All output for the tester is German.
+ * `sh "${CLAUDE_PLUGIN_ROOT}/scripts/sdc" <command>` — the plugin's CLI, on the plugin's own Node. All output for the tester is German.
  * Secrets never go to argv, stdout or files outside their mode-600 places.
  */
 import {
@@ -13,7 +13,8 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { delimiter, dirname, join, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { checkYml, usedMinutes } from './bsyml.js';
 import { loadConfig, type Config } from './config.js';
@@ -53,6 +54,12 @@ export type CliDeps = RunDeps & {
   /** the plugin's workspace template (next to dist/) */
   workspaceSource: string;
   nodeVersion: string;
+  /** whether this Node is the plugin's own copy or a system Node (the launcher's fallback) */
+  nodeFrom: 'eigene Kopie' | 'System-Node';
+  /** all of stdin (set-secret --stdin: the native dialog pipes the value in) */
+  readStdin: () => Promise<string>;
+  /** runs `scripts/playwright-mcp --check`: which Node the MCP server would start with */
+  mcpStart: (script: string) => { status: number; stdout: string; stderr: string };
   /** calls `stop` on Ctrl+C / SIGTERM while a run is going; returns the unregister function */
   interrupts?: (stop: () => void, hard: () => void) => () => void;
 };
@@ -81,6 +88,29 @@ function flag(args: string[], name: string): string | undefined {
 }
 
 // ---------- set-secret ----------
+
+/** The value from the native dialog, through a pipe: no terminal, no echo, only "gespeichert (…)" or an error. */
+async function setSecretFromStdin(d: CliDeps): Promise<number> {
+  const value = (await d.readStdin()).split(/\r?\n/)[0] ?? '';
+  if (!value) {
+    d.err('Keine Eingabe (Dialog abgebrochen). Nichts gespeichert.');
+    return 1;
+  }
+  if (value.length < MIN_PASSWORD) {
+    d.err(
+      `Das Passwort ist kürzer als ${MIN_PASSWORD} Zeichen — so kurz ist das Staging-Passwort nie. Nichts gespeichert.`,
+    );
+    return 1;
+  }
+  try {
+    const where = writeGatePassword(value, d.secret);
+    d.out(where === 'keychain' ? 'gespeichert (Schlüsselbund)' : 'gespeichert (Datei)');
+    return 0;
+  } catch (e) {
+    d.err(`Nicht gespeichert: ${(e as Error).message}`);
+    return 1;
+  }
+}
 
 async function setSecret(d: CliDeps): Promise<number> {
   const first = await d.prompt('Staging-Passwort (Eingabe bleibt unsichtbar): ');
@@ -115,8 +145,14 @@ async function doctor(d: CliDeps, json: boolean): Promise<number> {
     checks.push({ status, label, detail });
 
   const major = Number(d.nodeVersion.split('.')[0]);
-  if (major >= 26) add('ok', `Node ${d.nodeVersion}`);
+  if (major >= 26) add('ok', `Node ${d.nodeVersion} (${d.nodeFrom})`);
   else add('fehlt', `Node ${d.nodeVersion}`, 'Node 26 oder neuer wird gebraucht.');
+  if (d.nodeFrom !== 'eigene Kopie')
+    add(
+      'hinweis',
+      'Node-Kopie',
+      'Die eigene Node-Kopie des Plugins fehlt — Setup Schritt 1 installiert sie (ohne Administrator-Rechte).',
+    );
 
   let config: Config | null = null;
   try {
@@ -174,7 +210,7 @@ async function doctor(d: CliDeps, json: boolean): Promise<number> {
     add('ok', 'Test-Arbeitsbereich');
   else add('fehlt', 'Test-Arbeitsbereich', 'Bitte „install-workspace“ ausführen.');
 
-  const mcp = mcpCheck(join(d.workspaceSource, '..', '.mcp.json'));
+  const mcp = mcpCheck(join(d.workspaceSource, '..'), d);
   add(mcp.ok ? 'ok' : 'fehlt', 'Playwright-MCP', mcp.detail);
 
   const state = gateStatePath(d.env);
@@ -200,12 +236,17 @@ async function doctor(d: CliDeps, json: boolean): Promise<number> {
   return checks.some((c) => c.status === 'fehlt') ? 1 : 0;
 }
 
-/** The plugin's Playwright MCP server: pinned, isolated, started with the local gate session (storage state). */
-function mcpCheck(file: string): { ok: boolean; detail: string } {
+/**
+ * The plugin's Playwright MCP server: `.mcp.json` starts `scripts/playwright-mcp`, which runs the pinned
+ * @playwright/mcp through the plugin's own Node with the local gate session; and that script finds a Node here.
+ */
+function mcpCheck(plugin: string, d: CliDeps): { ok: boolean; detail: string } {
   let server: { command?: string; args?: string[] } | undefined;
   try {
     server = (
-      JSON.parse(readFileSync(file, 'utf8')) as { mcpServers?: Record<string, typeof server> }
+      JSON.parse(readFileSync(join(plugin, '.mcp.json'), 'utf8')) as {
+        mcpServers?: Record<string, typeof server>;
+      }
     ).mcpServers?.playwright;
   } catch {
     return {
@@ -214,15 +255,35 @@ function mcpCheck(file: string): { ok: boolean; detail: string } {
     };
   }
   if (!server) return { ok: false, detail: 'In der .mcp.json fehlt der Server „playwright“.' };
-  const all = [server.command ?? '', ...(server.args ?? [])].join(' ');
-  const version = /@playwright\/mcp@(\d+\.\d+\.\d+)(?=["'\s]|$)/.exec(all)?.[1];
+  if (server.command !== 'sh' || !(server.args?.[0] ?? '').endsWith('/scripts/playwright-mcp'))
+    return {
+      ok: false,
+      detail: 'Der Server startet nicht über scripts/playwright-mcp — Plugin neu installieren.',
+    };
+  const scriptPath = join(plugin, 'scripts', 'playwright-mcp');
+  let script = '';
+  try {
+    script = readFileSync(scriptPath, 'utf8');
+  } catch {
+    return { ok: false, detail: 'scripts/playwright-mcp fehlt — Plugin neu installieren.' };
+  }
+  const version = /@playwright\/mcp@(\d+\.\d+\.\d+)(?=["'\s]|$)/.exec(script)?.[1];
   if (!version) return { ok: false, detail: '@playwright/mcp hat keine feste Version.' };
-  if (!all.includes('--storage-state') || !all.includes('staging-device-check/gate-state.json'))
+  if (
+    !script.includes('--storage-state') ||
+    !script.includes('staging-device-check/gate-state.json')
+  )
     return {
       ok: false,
       detail: 'Der Server startet nicht mit der Gate-Sitzung (--storage-state …/gate-state.json).',
     };
-  return { ok: true, detail: `@playwright/mcp ${version}, mit der Gate-Sitzung` };
+  const start = d.mcpStart(scriptPath);
+  if (start.status !== 0)
+    return { ok: false, detail: start.stderr.trim() || 'Der Server findet kein Node.' };
+  return {
+    ok: true,
+    detail: `@playwright/mcp ${version}, mit der Gate-Sitzung, ${start.stdout.trim()}`,
+  };
 }
 
 // ---------- install-workspace ----------
@@ -308,7 +369,7 @@ export async function main(argv: string[], d: CliDeps): Promise<number> {
   try {
     switch (cmd) {
       case 'set-secret':
-        return await setSecret(d);
+        return args.includes('--stdin') ? await setSecretFromStdin(d) : await setSecret(d);
       case 'doctor':
         return await doctor(d, args.includes('--json'));
       case 'install-workspace':
@@ -444,7 +505,12 @@ function hiddenPrompt(question: string): Promise<string> {
 }
 
 export function realDeps(): CliDeps {
-  const env = process.env;
+  // this Node first on PATH for every child (npm ci, Playwright, the BrowserStack SDK start through `env node`),
+  // also when the CLI was started without the launcher
+  const env = {
+    ...process.env,
+    PATH: `${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ''}`,
+  };
   return {
     env,
     secret: realSecretDeps(),
@@ -457,6 +523,18 @@ export function realDeps(): CliDeps {
     prompt: hiddenPrompt,
     workspaceSource: fileURLToPath(new URL('../workspace/', import.meta.url)),
     nodeVersion: process.versions.node,
+    nodeFrom: process.execPath.startsWith(join(stateDir(process.env), 'node') + sep)
+      ? 'eigene Kopie'
+      : 'System-Node',
+    readStdin: async () => {
+      let all = '';
+      for await (const chunk of process.stdin) all += String(chunk);
+      return all;
+    },
+    mcpStart: (script) => {
+      const r = spawnSync('sh', [script, '--check'], { encoding: 'utf8', timeout: 15_000 });
+      return { status: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+    },
     interrupts: (stop, hard) => {
       // the first Ctrl+C / SIGTERM stops the SDK group and lets the run folder be cleaned; Node's default exit would
       // skip that. A second one exits at once, after the hard stop. A hang-up (terminal or parent gone) has no one

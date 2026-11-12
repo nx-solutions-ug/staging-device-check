@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Sets up staging-device-check once and changes single values later — Node and the test workspace, the settings file, the staging password in the keychain, the local gate session for the Playwright MCP, then the doctor check. Use when the tester runs /staging-device-check:setup or says something like "Gerätetest einrichten", "Gerätetests einrichten" or "Einstellungen für den Gerätetest ändern", or when doctor or a run reports something as "fehlt".
+description: Sets up staging-device-check once and changes single values later — the plugin's own Node and the test workspace, the settings file, the staging password in the keychain, the local gate session for the Playwright MCP, then the doctor check. Use when the tester runs /staging-device-check:setup or says something like "Gerätetest einrichten", "Gerätetests einrichten" or "Einstellungen für den Gerätetest ändern", or when doctor or a run reports something as "fehlt".
 ---
 
 # Setup for device tests on staging
@@ -9,14 +9,17 @@ Talk to the tester in German, one question at a time. Nothing secret goes throug
 password, not the gate cookie, not the BrowserStack credentials. Never read, print or copy her `browserstack.yml`;
 the CLI checks it in-process.
 
-The CLI is `node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" <command>`. Run it with the Bash tool, except `set-secret`
-(step 3).
+The CLI is `sh "${CLAUDE_PLUGIN_ROOT}/scripts/sdc" <command>`: it runs on the plugin's own Node (step 1). Run it with
+the Bash tool. She never needs to install Node or open a terminal for the setup.
 
-## 1. Node and the test workspace
+## 1. The plugin's own Node and the test workspace
 
-1. `node --version` must be 26 or newer. Otherwise tell her to install the current Node and come back.
-2. `node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" install-workspace` copies the Playwright workspace to her data folder and
-   runs `npm ci` there (needs the network, takes a minute). It prints the folder.
+1. `sh "${CLAUDE_PLUGIN_ROOT}/scripts/install-node.sh"` installs the Node release the plugin pins into her data
+   folder: checked against its pinned checksum, no administrator rights, no change to her shell. It needs the
+   network once and prints the path of `node`; when that version is already there, it keeps it. A German error
+   (no network, checksum, unsupported system) is read out as it is; nothing is half installed.
+2. `sh "${CLAUDE_PLUGIN_ROOT}/scripts/sdc" install-workspace` copies the Playwright workspace to her data folder and
+   runs `npm ci` there with that Node (needs the network, takes a minute). It prints the folder.
 
 ## 2. Settings (no secrets)
 
@@ -43,29 +46,39 @@ f="${XDG_CONFIG_HOME:-$HOME/.config}/staging-device-check/config.json"; mkdir -p
 
 After writing it: `chmod 600` on the file. `doctor` (step 5) validates it and names a wrong field in German.
 
-## 3. Staging password — in her own terminal, never in the chat
+## 3. Staging password — in a dialog, never in the chat
 
-`set-secret` reads the password with hidden input and needs a real terminal. Claude Code's `!` prefix does not give
-the command one: its output goes into the conversation, and the CLI refuses ("set-secret braucht ein Terminal").
-So tell her, in German:
-
-1. Open the Terminal app (a separate window, not this chat).
-2. Paste exactly this command and press Enter (write it out with the path filled in):
+1. Tell her, in German, that a small window asks for the staging password, twice, and that the typing stays
+   invisible. Then run, with a Bash timeout of 600000 ms (the dialog waits for her):
 
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" set-secret
+   sh "${CLAUDE_PLUGIN_ROOT}/scripts/ask-password.sh"
    ```
 
-3. Type the staging password twice; nothing appears while typing. It must be at least 16 characters.
-4. Come back and say "fertig". The terminal shows only `gespeichert (Schlüsselbund)` or `gespeichert (Datei)`.
+   - On a Mac it is a system dialog; on a Linux desktop kdialog (KDE) or zenity (GNOME). The value goes straight
+     into the keychain (Mac) or the desktop's password manager (KWallet, GNOME Keyring); it never appears in the
+     chat or in the output.
+   - It prints only `gespeichert (Schlüsselbund)` — or `gespeichert (Datei)` where no password manager answers —
+     or a German message: "Abgebrochen. Nichts gespeichert." when she cancelled, "zu kurz" (at least 16
+     characters) or "stimmten nicht überein", where the dialog simply asks again.
+
+2. **Only when it exits with code 3** (no dialog here: no screen, or no dialog program): the terminal path. Tell
+   her to open her own terminal window (not this chat), paste exactly this command with the path filled in, type
+   the password twice and come back with "fertig":
+
+   ```bash
+   sh "${CLAUDE_PLUGIN_ROOT}/scripts/sdc" set-secret
+   ```
+
+   Claude Code's `!` prefix does not give `set-secret` a terminal; it refuses there.
 
 If she types or pastes the password into the chat anyway: do not repeat it, do not use it, and tell her that it is
-now in the transcript and must be changed by whoever runs the staging system; then repeat the steps above with the
+now in the transcript and must be changed by whoever runs the staging system; then repeat the step above with the
 new one.
 
 ## 4. Gate session for the local browser
 
-`node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" local-state` logs in to the staging gate on this machine and writes the
+`sh "${CLAUDE_PLUGIN_ROOT}/scripts/sdc" local-state` logs in to the staging gate on this machine and writes the
 session for the Playwright MCP (mode 600). It prints only how long it is valid. The Playwright MCP reads it when it
 starts: if the MCP was already running, tell her to reconnect it with `/mcp` (or restart Claude Code). Run
 `local-state` again when it has expired.
@@ -76,9 +89,11 @@ starts: if the MCP was already running, tell her to reconnect it with `/mcp` (or
    most recently updated issue she can see). Only read; never write. If that fails, the Jira connection is missing
    or points to another site: tell her to connect Atlassian in Claude Code (`/mcp`) and to check `jiraSite`. Report
    it as "fehlt Jira".
-2. `node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" doctor` prints one line per check, `ok`, `fehlt` or `hinweis`.
+2. `sh "${CLAUDE_PLUGIN_ROOT}/scripts/sdc" doctor` prints one line per check, `ok`, `fehlt` or `hinweis`.
 
-- No `fehlt` (Jira included): say "Bereit — du kannst jetzt `/tests-e2e <TICKET>` aufrufen."
+- No `fehlt` (Jira included): say "Bereit". On the first setup, add that the local browser (the Playwright MCP)
+  can only start now that the plugin has its own Node: she should restart Claude Code once (or reconnect the
+  server via `/mcp`) before `/tests-e2e <TICKET>`.
 - Otherwise: list each `fehlt` line with what to do, in plain German, and offer to go through that step again.
 - `hinweis` lines (for example a `browserstack.yml` inside a git folder, or few minutes left) are worth reading
   out, but do not block.

@@ -87,7 +87,7 @@ var realSecretDeps = () => ({
   env: process.env,
   platform: process.platform,
   run: (cmd, args, input) => {
-    const r = spawnSync(cmd, args, { input, encoding: "utf8", timeout: 1e4 });
+    const r = spawnSync(cmd, args, { input, encoding: "utf8", timeout: 12e4 });
     return { status: r.error ? 127 : r.status ?? 1, stdout: r.stdout ?? "" };
   }
 });

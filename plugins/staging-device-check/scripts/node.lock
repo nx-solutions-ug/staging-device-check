@@ -1,0 +1,6 @@
+# The Node release the plugin brings along: one place for install-node.sh, the launcher and the CLI.
+# Hashes from https://nodejs.org/dist/v26.13.1/SHASUMS256.txt, each checked against a fresh download.
+NODE_VERSION=26.13.1
+NODE_SHA256_darwin_arm64=aec2514ea1ceb2ba52455e9ec65986f6749a06dd759e5db2a72e6889668c9735
+NODE_SHA256_darwin_x64=82bb96078a24ca50b9c9a38f2379e6be6d87171fcd400fc14c8934b3bce96e2f
+NODE_SHA256_linux_x64=518674de2b621728a5e4486f5fb3b7d2900bb3cc4aa97969edaa463db99f9778
