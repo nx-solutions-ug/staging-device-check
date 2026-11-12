@@ -179,8 +179,12 @@ describe('README', () => {
       'nicht bestanden',
       'zu prüfen (Bild)',
       'nicht prüfbar hier',
+      '**abgebrochen**',
       'Tastatur',
     ])
       expect(md).toContain(w);
+    expect(read('skills', 'tests-e2e', 'references', 'stand-format.md')).toContain(
+      '**abgebrochen**',
+    );
   });
 });

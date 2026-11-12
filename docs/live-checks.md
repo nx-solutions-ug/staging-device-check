@@ -198,8 +198,9 @@ after 15 s.
   before the first check.
 - The session ended at BrowserStack (status `done`). No token list or yml copy was left. Two processes of the run
   were still exiting when the CLI ended; they were gone 15 s later.
-- The section does not say that the run was aborted. One row carries the SDK's internal connection error, because
-  its helper process stops on SIGINT before Playwright does.
+- The section did not say that the run was aborted, and one row carried the SDK's internal connection error (its
+  helper process stops on SIGINT before Playwright does). Fixed since: `run` records the abort in `run.json`, the
+  rows read "abgebrochen", and internal errors of the device service go to stderr only.
 
 **Redaction scan after the runs.** In-process search for the username, the key, their combined, base64,
 URI-encoded and JSON-escaped forms, and the gate password:

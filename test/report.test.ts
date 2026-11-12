@@ -245,3 +245,137 @@ describe('renderStand', () => {
     expect(md).not.toMatch(/https?:\/\//);
   });
 });
+
+describe('an aborted run', () => {
+  const IPHONE = 'safari-iPhone 16:18-browserstack-mobile';
+  const SDK_ERROR =
+    'Error: 14 UNAVAILABLE: No connection established. Last error: Error: connect ECONNREFUSED /tmp/sdk-platform-0000.sock';
+  const plan = (aborted?: string) => ({
+    tests: [{ title: 'Konto A (frau)', checks: ['Eins', 'Zwei', 'Drei'] }],
+    devices: ['iPhone 16'],
+    ...(aborted ? { aborted } : {}),
+  });
+  const report = (result: object) => ({
+    suites: [
+      {
+        title: 'tests-e2e.spec.ts',
+        specs: [{ title: 'Konto A (frau)', tests: [{ projectName: IPHONE, ...result }] }],
+      },
+    ],
+  });
+
+  test('stopped before the first check: every planned check is abgebrochen, no SDK error in any row', () => {
+    const r = parseResult(
+      report({
+        results: [{ status: 'failed', steps: [], errors: [{ message: SDK_ERROR }] }],
+      }) as never,
+      [],
+      plan('Strg+C'),
+    );
+    expect(r.aborted).toBe('Strg+C');
+    expect(r.checks.map((c) => [c.title, c.outcome])).toEqual([
+      ['Eins', 'abgebrochen'],
+      ['Zwei', 'abgebrochen'],
+      ['Drei', 'abgebrochen'],
+    ]);
+    const md = renderStand(r, 'ACME-1', HOST, ['iPhone 16'], DATE);
+    expect(md).toContain('abgebrochen');
+    expect(md.split('\n')[0]).toContain('abgebrochen');
+    expect(md).not.toMatch(/ECONNREFUSED|UNAVAILABLE|sdk-platform|nicht gelaufen/);
+    expect(r.log.join('\n')).toContain('ECONNREFUSED');
+  });
+
+  test('stopped during a check: what ran keeps its outcome, the running check and the rest are abgebrochen', () => {
+    const r = parseResult(
+      report({
+        results: [
+          {
+            status: 'interrupted',
+            steps: [
+              { title: 'Eins' },
+              {
+                title: 'Zwei',
+                error: { message: 'Target page, context or browser has been closed' },
+              },
+            ],
+            errors: [{ message: 'Target page, context or browser has been closed' }],
+          },
+        ],
+      }) as never,
+      [],
+      plan('Strg+C'),
+    );
+    expect(r.checks.map((c) => [c.title, c.outcome, c.note])).toEqual([
+      ['Eins', 'bestanden', ''],
+      ['Zwei', 'abgebrochen', ''],
+      ['Drei', 'abgebrochen', ''],
+    ]);
+  });
+
+  test('without an abort a check that did not run stays nicht gelaufen', () => {
+    const r = parseResult(
+      report({
+        results: [
+          {
+            status: 'failed',
+            steps: [{ title: 'Eins', error: { message: 'Knopf fehlt' } }],
+            errors: [],
+          },
+        ],
+      }) as never,
+      [],
+      plan(),
+    );
+    expect(r.checks.find((c) => c.title === 'Zwei')).toMatchObject({
+      outcome: 'nicht bestanden',
+      note: 'nicht gelaufen',
+    });
+    expect(renderStand(r, 'ACME-1', HOST, ['iPhone 16'], DATE).split('\n')[0]).not.toContain(
+      'abgebrochen',
+    );
+  });
+});
+
+describe('internal errors of the device service', () => {
+  test('stay out of every row (neutral note), and go to the log', () => {
+    const r = parseResult(
+      {
+        suites: [
+          {
+            title: 'a.spec.ts',
+            specs: [
+              {
+                title: 'Konto A (frau)',
+                tests: [
+                  {
+                    projectName: 'safari-iPhone 16:18-browserstack-mobile',
+                    results: [
+                      {
+                        status: 'failed',
+                        steps: [
+                          {
+                            title: 'Eins',
+                            error: {
+                              message:
+                                'Error: 14 UNAVAILABLE: connect ECONNREFUSED /tmp/sdk-platform-1.sock',
+                            },
+                          },
+                        ],
+                        errors: [],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      } as never,
+      [],
+    );
+    expect(r.checks[0]).toMatchObject({ title: 'Eins', outcome: 'nicht bestanden' });
+    expect(r.checks[0].note).not.toMatch(/ECONNREFUSED|UNAVAILABLE|sdk-platform/);
+    expect(r.checks[0].note).toContain('Log');
+    expect(r.log.join('\n')).toContain('ECONNREFUSED');
+  });
+});

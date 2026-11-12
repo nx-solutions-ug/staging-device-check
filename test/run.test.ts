@@ -163,6 +163,9 @@ describe('runTests', () => {
     expect(await runTests(dir, {}, d)).not.toBe(0);
     expect(signal?.aborted).toBe(true);
     expect(err.join('\n')).toContain('abgebrochen');
+    expect(JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')).aborted).toBe(
+      'Umgebung nicht gestartet',
+    );
   });
 
   test('runs the SDK with the run context in env, credentials not in argv', async () => {
@@ -366,6 +369,8 @@ describe('runTests', () => {
     expect(err.join('\n')).not.toContain('Umgebung nicht gestartet');
     expect(existsSync(join(dir, '.run-tokens'))).toBe(false);
     expect(readFileSync(join(dir, 'partial.txt'), 'utf8')).not.toContain(TOKEN);
+    // report reads this and writes "abgebrochen" instead of failures
+    expect(JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')).aborted).toBe('Strg+C');
   });
 
   test('refuses a spec that hands evaluate a second argument (dropped on iOS)', async () => {

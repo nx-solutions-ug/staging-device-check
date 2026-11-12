@@ -62,6 +62,8 @@ export type RunMeta = {
   devices?: string[];
   /** the checks of each persona test, read from the spec before the SDK starts */
   plan?: SpecPlan['tests'];
+  /** why the run was stopped before its end: report writes "abgebrochen" for what did not finish */
+  aborted?: 'Strg+C' | 'Umgebung nicht gestartet';
 };
 
 const RUN_YML = '.browserstack.run.yml';
@@ -417,6 +419,9 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
     err.end();
     opts.signal?.removeEventListener('abort', outside);
     if (stop.signal.aborted) {
+      const runFile = join(dir, 'run.json');
+      const aborted: RunMeta['aborted'] = notStarted ? 'Umgebung nicht gestartet' : 'Strg+C';
+      writeFileSync(runFile, `${JSON.stringify({ ...readMeta(dir), aborted }, null, 2)}\n`);
       d.err(
         notStarted
           ? `Lauf abgebrochen: ${meta.host} zeigt nicht die App (Umgebung nicht gestartet). Die übrigen Tests wurden nicht gestartet.`
