@@ -9,7 +9,13 @@
  * annotation (demo mailbox) is one row; a skip without it is a failure.
  */
 
-export type Outcome = 'bestanden' | 'nicht bestanden' | 'zu prüfen (Bild)' | 'nicht prüfbar hier';
+export type Outcome =
+  | 'bestanden'
+  | 'nicht bestanden'
+  | 'zu prüfen (Bild)'
+  | 'nicht prüfbar hier'
+  /** only in a run stopped before its end: the check did not finish, never a pass */
+  | 'abgebrochen';
 export type DeviceColumn = 'iPhone' | 'Android';
 
 export type RunCheck = {
@@ -19,7 +25,14 @@ export type RunCheck = {
   outcome: Outcome;
   note: string;
 };
-export type RunResult = { checks: RunCheck[]; screenshots: string[] };
+export type RunResult = {
+  checks: RunCheck[];
+  screenshots: string[];
+  /** why the run was stopped before its end (run.json) */
+  aborted?: string;
+  /** internal errors of the device service, kept out of the section: for the log only */
+  log: string[];
+};
 
 type Annotation = { type?: string; description?: string };
 type PwStep = { title?: string; error?: { message?: string } };
@@ -42,6 +55,16 @@ export type PlaywrightReport = { suites?: PwSuite[] };
 const NICHT_PRUEFBAR = 'nicht prüfbar hier';
 const ZU_PRUEFEN = 'zu prüfen';
 
+/**
+ * Errors of the device service's own plumbing (its local socket, gRPC), not of the app: never a row's text.
+ * Case-sensitive and only the SDK's own words: an app's "503 Service Unavailable" or the harness's own
+ * "connect ECONNREFUSED <host>:443" stays a normal failure.
+ */
+const INTERNAL = /\b14 UNAVAILABLE\b|\bgrpc\b|sdk-platform|\.sock\b/;
+/** The harness's own stop ("Umgebung nicht gestartet"): the abort's reason, not a check's failure. */
+const NOT_STARTED = /UmgebungNichtGestartet|Umgebung nicht gestartet/;
+const INTERNAL_NOTE = 'interner Fehler des Gerätedienstes (Details im Log)';
+
 const deviceOf = (project: string): DeviceColumn =>
   /iphone|ipad|ios/i.test(project) ? 'iPhone' : 'Android';
 // oxlint-disable-next-line no-control-regex
@@ -54,7 +77,7 @@ const firstLine = (s: string) =>
     ?.trim()
     .slice(0, 160) ?? '';
 
-function outcomeOf(t: PwTest): { outcome: Outcome; note: string } {
+function outcomeOf(t: PwTest, clean: (m: string) => string): { outcome: Outcome; note: string } {
   const last = t.results?.at(-1) ?? {};
   const annotations = [...(t.annotations ?? []), ...(last.annotations ?? [])];
   const find = (type: string) => annotations.find((a) => a.type === type);
@@ -72,7 +95,7 @@ function outcomeOf(t: PwTest): { outcome: Outcome; note: string } {
       ? { outcome: 'zu prüfen (Bild)', note: a.description ?? '' }
       : { outcome: 'bestanden', note: '' };
   }
-  return { outcome: 'nicht bestanden', note: firstLine(last.errors?.[0]?.message ?? status) };
+  return { outcome: 'nicht bestanden', note: clean(last.errors?.[0]?.message ?? status) };
 }
 
 const annotationsOf = (t: PwTest) => {
@@ -96,20 +119,31 @@ function stepMark(annotations: Annotation[], type: string, step: string): string
   return null;
 }
 
-function stepOutcome(step: PwStep, annotations: Annotation[]): { outcome: Outcome; note: string } {
+function stepOutcome(
+  step: PwStep,
+  annotations: Annotation[],
+  clean: (m: string) => string,
+): { outcome: Outcome; note: string } {
   const title = step.title ?? '';
   const notHere = stepMark(annotations, NICHT_PRUEFBAR, title);
   if (notHere !== null) return { outcome: 'nicht prüfbar hier', note: notHere };
-  if (step.error) return { outcome: 'nicht bestanden', note: firstLine(step.error.message ?? '') };
+  if (step.error) return { outcome: 'nicht bestanden', note: clean(step.error.message ?? '') };
   const look = stepMark(annotations, ZU_PRUEFEN, title);
   if (look !== null) return { outcome: 'zu prüfen (Bild)', note: look };
   return { outcome: 'bestanden', note: '' };
 }
 
 /** The checks `run` read from the spec before the SDK started (run.json), and the devices of the run. */
-export type RunPlan = { tests: Array<{ title: string; checks: string[] }>; devices: string[] };
+export type RunPlan = {
+  tests: Array<{ title: string; checks: string[] }>;
+  devices: string[];
+  /** set when run stopped the run before its end (run.json `aborted`) */
+  aborted?: string;
+};
 
 const NOT_RUN = 'nicht gelaufen';
+/** the reason in the heading when a test was interrupted but run.json names no abort */
+const INTERRUPTED = 'Test unterbrochen';
 
 /** Whether an annotation of a check names one of these step titles (`<step>` or `<step>: <rest>`). */
 const namesStep = (a: Annotation, titles: string[]) =>
@@ -120,12 +154,44 @@ export function parseResult(
   screenshots: string[],
   plan?: RunPlan,
 ): RunResult {
+  const log: string[] = [];
+  // a row's note: the first line, or a neutral text when the device service's plumbing failed (raw text to the log)
+  const clean = (message: string) => {
+    if (!INTERNAL.test(message)) return firstLine(message);
+    log.push(message.replace(ANSI, '').trim());
+    return INTERNAL_NOTE;
+  };
+  const abortedRow = (title: string, device: DeviceColumn, project: string): RunCheck => ({
+    title,
+    device,
+    project,
+    outcome: 'abgebrochen',
+    note: '',
+  });
+  /**
+   * Whether the abort cut this test: it never started (no result), was interrupted, or failed on the device
+   * service's plumbing or the harness's own stop. A test that had ended with a real failure keeps it.
+   */
+  const cutByAbort = (last: PwResult, steps: PwStep[]) => {
+    if (!aborted || last.status === 'passed' || last.status === 'skipped') return false;
+    if (last.status === undefined || last.status === 'interrupted') return true;
+    const errors = [steps.at(-1)?.error?.message ?? '', last.errors?.[0]?.message ?? ''];
+    return errors.some((m) => INTERNAL.test(m) || NOT_STARTED.test(m));
+  };
+  // tests (persona + device column) that ran to their end: a planned check missing there did not run, abort or not
+  const finished = new Set<string>();
+  const key = (spec: string, device: DeviceColumn) => `${spec}\u0000${device}`;
   const specs: PwSpec[] = [];
   const walk = (suite: PwSuite) => {
     specs.push(...(suite.specs ?? []));
     for (const s of suite.suites ?? []) walk(s);
   };
   for (const s of report.suites ?? []) walk(s);
+  // an interrupted test means the run was stopped before its end, even when run.json does not say so
+  const interrupted = specs.some((sp) =>
+    sp.tests?.some((t) => t.results?.at(-1)?.status === 'interrupted'),
+  );
+  const aborted = plan?.aborted ?? (interrupted ? INTERRUPTED : undefined);
   // with several persona tests, a check row names its persona test
   const personas = new Set(
     plan
@@ -146,8 +212,18 @@ export function parseResult(
       const last = t.results?.at(-1) ?? {};
       const steps = last.steps ?? [];
       if (!steps.length || last.status === 'skipped') {
-        const whole = outcomeOf(t);
+        const whole = outcomeOf(t, clean);
         const own = planned(specTitle);
+        const cutTest = cutByAbort(last, steps);
+        if (!cutTest) finished.add(key(specTitle, device));
+        // stopped before its first check: what it planned did not finish; the error is the abort's, not the app's.
+        // A test that had already failed for real keeps its failure.
+        if (cutTest) {
+          if (whole.note && whole.note !== INTERNAL_NOTE) log.push(whole.note);
+          for (const c of own.length ? own : [specTitle])
+            checks.push(abortedRow(own.length ? prefix(specTitle, c) : c, device, project));
+          continue;
+        }
         // a persona skipped as a whole (demo mailbox): each planned check says so
         if (whole.outcome === 'nicht prüfbar hier' && own.length)
           for (const c of own)
@@ -156,13 +232,24 @@ export function parseResult(
         continue;
       }
       const annotations = annotationsOf(t);
-      for (const step of steps)
-        checks.push({
-          title: prefix(specTitle, step.title ?? ''),
-          device,
-          project,
-          ...stepOutcome(step, annotations),
-        });
+      const cutTest = cutByAbort(last, steps);
+      // the check that was running when the run was stopped did not finish, error or not: an interrupted check that
+      // awaited no page call carries no error, and is still never a pass
+      const cut =
+        cutTest &&
+        (last.status === 'interrupted' || INTERNAL.test(steps.at(-1)?.error?.message ?? ''))
+          ? steps.at(-1)
+          : undefined;
+      if (!cutTest) finished.add(key(specTitle, device));
+      for (const step of steps) {
+        const title = prefix(specTitle, step.title ?? '');
+        if (step === cut) {
+          const message = step.error?.message;
+          if (message && !INTERNAL.test(message)) log.push(message.replace(ANSI, '').trim());
+          else if (message) clean(message);
+          checks.push(abortedRow(title, device, project));
+        } else checks.push({ title, device, project, ...stepOutcome(step, annotations, clean) });
+      }
       const problems: string[] = [];
       // a note for a check that has no step: its check never got its row, so the run is not trustworthy
       const titles = steps.map((s) => s.title ?? '');
@@ -170,8 +257,12 @@ export function parseResult(
         if ((a.type === ZU_PRUEFEN || a.type === NICHT_PRUEFBAR) && !namesStep(a, titles))
           problems.push(`Notiz passt zu keiner Prüfung: ${a.description ?? ''}`);
       // a failure outside every step (sign-in, a hard error between steps) must not vanish
-      if (last.status !== 'passed' && !steps.some((s) => s.error))
-        problems.push(firstLine(last.errors?.[0]?.message ?? last.status ?? ''));
+      // (in a test the abort cut, that failure is the abort's: log only)
+      if (last.status !== 'passed' && !steps.some((s) => s.error)) {
+        const message = last.errors?.[0]?.message ?? last.status ?? '';
+        if (cutTest) log.push(firstLine(message));
+        else problems.push(clean(message));
+      }
       if (problems.length)
         checks.push({
           title: `${specTitle}: Ablauf`,
@@ -190,7 +281,11 @@ export function parseResult(
         for (const c of pt.checks) {
           const title = prefix(pt.title, c);
           if (!checks.some((x) => x.title === title && x.device === device))
-            checks.push({ title, device, project: '', outcome: 'nicht bestanden', note: NOT_RUN });
+            checks.push(
+              aborted && !finished.has(key(pt.title, device))
+                ? abortedRow(title, device, '')
+                : { title, device, project: '', outcome: 'nicht bestanden', note: NOT_RUN },
+            );
         }
     // rows in the planned order; anything unplanned (Ablauf, per-test rows) after its persona's checks
     const order = new Map<string, number>();
@@ -201,7 +296,7 @@ export function parseResult(
     const rank = (c: RunCheck) => order.get(c.title) ?? Number.MAX_SAFE_INTEGER;
     checks.sort((a, b) => rank(a) - rank(b));
   }
-  return { checks, screenshots };
+  return { checks, screenshots, ...(aborted ? { aborted } : {}), log };
 }
 
 const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
@@ -216,8 +311,9 @@ export function renderStand(
 ): string {
   const label = host.split('.')[0];
   const day = `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}`;
+  const stopped = r.aborted ? ` – abgebrochen (${r.aborted})` : '';
   const lines = [
-    `**Gerätetest ${day} – ${[label, ...devices].join(', ')}**`,
+    `**Gerätetest ${day} – ${[label, ...devices].join(', ')}${stopped}**`,
     '',
     '| Prüfung | iPhone | Android | Hinweis |',
     '|---|---|---|---|',

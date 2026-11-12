@@ -245,3 +245,313 @@ describe('renderStand', () => {
     expect(md).not.toMatch(/https?:\/\//);
   });
 });
+
+describe('an aborted run', () => {
+  const IPHONE = 'safari-iPhone 16:18-browserstack-mobile';
+  const SDK_ERROR =
+    'Error: 14 UNAVAILABLE: No connection established. Last error: Error: connect ECONNREFUSED /tmp/sdk-platform-0000.sock';
+  const plan = (aborted?: string) => ({
+    tests: [{ title: 'Konto A (frau)', checks: ['Eins', 'Zwei', 'Drei'] }],
+    devices: ['iPhone 16'],
+    ...(aborted ? { aborted } : {}),
+  });
+  const report = (result: object) => ({
+    suites: [
+      {
+        title: 'tests-e2e.spec.ts',
+        specs: [{ title: 'Konto A (frau)', tests: [{ projectName: IPHONE, ...result }] }],
+      },
+    ],
+  });
+
+  test('stopped before the first check: every planned check is abgebrochen, no SDK error in any row', () => {
+    const r = parseResult(
+      report({
+        results: [{ status: 'failed', steps: [], errors: [{ message: SDK_ERROR }] }],
+      }) as never,
+      [],
+      plan('Strg+C'),
+    );
+    expect(r.aborted).toBe('Strg+C');
+    expect(r.checks.map((c) => [c.title, c.outcome])).toEqual([
+      ['Eins', 'abgebrochen'],
+      ['Zwei', 'abgebrochen'],
+      ['Drei', 'abgebrochen'],
+    ]);
+    const md = renderStand(r, 'ACME-1', HOST, ['iPhone 16'], DATE);
+    expect(md).toContain('abgebrochen');
+    expect(md.split('\n')[0]).toContain('abgebrochen');
+    expect(md).not.toMatch(/ECONNREFUSED|UNAVAILABLE|sdk-platform|nicht gelaufen/);
+    expect(r.log.join('\n')).toContain('ECONNREFUSED');
+  });
+
+  test('stopped during a check: what ran keeps its outcome, the running check and the rest are abgebrochen', () => {
+    const r = parseResult(
+      report({
+        results: [
+          {
+            status: 'interrupted',
+            steps: [
+              { title: 'Eins' },
+              {
+                title: 'Zwei',
+                error: { message: 'Target page, context or browser has been closed' },
+              },
+            ],
+            errors: [{ message: 'Target page, context or browser has been closed' }],
+          },
+        ],
+      }) as never,
+      [],
+      plan('Strg+C'),
+    );
+    expect(r.checks.map((c) => [c.title, c.outcome, c.note])).toEqual([
+      ['Eins', 'bestanden', ''],
+      ['Zwei', 'abgebrochen', ''],
+      ['Drei', 'abgebrochen', ''],
+    ]);
+  });
+
+  // the real shape (Playwright 1.62.1, SIGINT while a check awaits no page call): no error on the step, none on the test
+  const interruptedWithoutError = {
+    results: [{ status: 'interrupted', steps: [{ title: 'Eins' }, { title: 'Zwei' }], errors: [] }],
+  };
+
+  test('a check interrupted while it awaited no page call is abgebrochen, never bestanden', () => {
+    const r = parseResult(report(interruptedWithoutError) as never, [], plan('Strg+C'));
+    expect(r.checks.map((c) => [c.title, c.outcome])).toEqual([
+      ['Eins', 'bestanden'],
+      ['Zwei', 'abgebrochen'],
+      ['Drei', 'abgebrochen'],
+    ]);
+  });
+
+  test('an interrupted test reads abgebrochen even when run.json names no abort', () => {
+    const r = parseResult(report(interruptedWithoutError) as never, [], plan());
+    expect(r.checks.find((c) => c.title === 'Zwei')?.outcome).toBe('abgebrochen');
+    expect(r.aborted).toBe('Test unterbrochen');
+    expect(renderStand(r, 'ACME-1', HOST, ['iPhone 16'], DATE).split('\n')[0]).toContain(
+      'abgebrochen (Test unterbrochen)',
+    );
+  });
+
+  test('the running check that failed on its own keeps that error in the log', () => {
+    const r = parseResult(
+      report({
+        results: [
+          {
+            status: 'interrupted',
+            steps: [{ title: 'Eins', error: { message: 'Knopf fehlt im Profil' } }],
+            errors: [],
+          },
+        ],
+      }) as never,
+      [],
+      plan('Strg+C'),
+    );
+    expect(r.checks[0]).toMatchObject({ title: 'Eins', outcome: 'abgebrochen' });
+    expect(r.log.join('\n')).toContain('Knopf fehlt im Profil');
+  });
+
+  describe('a test that had already failed for real keeps its failure', () => {
+    const plan2 = {
+      tests: [
+        { title: 'Konto A (frau)', checks: ['Eins', 'Zwei'] },
+        { title: 'Konto B (mann)', checks: ['Eins', 'Zwei'] },
+      ],
+      devices: ['iPhone 16'],
+      aborted: 'Strg+C',
+    };
+    const two = (b: object) => ({
+      suites: [
+        {
+          title: 'tests-e2e.spec.ts',
+          specs: [
+            {
+              title: 'Konto A (frau)',
+              tests: [{ projectName: IPHONE, ...interruptedWithoutError }],
+            },
+            { title: 'Konto B (mann)', tests: [{ projectName: IPHONE, ...b }] },
+          ],
+        },
+      ],
+    });
+    const rows = (r: ReturnType<typeof parseResult>) =>
+      r.checks.map((c) => [c.title, c.outcome, c.note]);
+
+    test('a sign-in failure before the first check: its row and its checks stay, not abgebrochen', () => {
+      const r = parseResult(
+        two({
+          results: [
+            { status: 'failed', steps: [], errors: [{ message: 'Anmeldung fehlgeschlagen' }] },
+          ],
+        }) as never,
+        [],
+        plan2,
+      );
+      expect(rows(r)).toEqual([
+        ['Konto A (frau): Eins', 'bestanden', ''],
+        ['Konto A (frau): Zwei', 'abgebrochen', ''],
+        ['Konto B (mann): Eins', 'nicht bestanden', 'nicht gelaufen'],
+        ['Konto B (mann): Zwei', 'nicht bestanden', 'nicht gelaufen'],
+        ['Konto B (mann)', 'nicht bestanden', 'Anmeldung fehlgeschlagen'],
+      ]);
+      expect(r.log).not.toContain('Anmeldung fehlgeschlagen');
+    });
+
+    test('a failure outside every check of a test that ended: its Ablauf row stays', () => {
+      const r = parseResult(
+        two({
+          results: [
+            {
+              status: 'failed',
+              steps: [{ title: 'Eins' }],
+              errors: [{ message: 'Abmelden fehlgeschlagen' }],
+            },
+          ],
+        }) as never,
+        [],
+        plan2,
+      );
+      expect(rows(r)).toContainEqual([
+        'Konto B (mann): Ablauf',
+        'nicht bestanden',
+        'Abmelden fehlgeschlagen',
+      ]);
+      expect(rows(r)).toContainEqual(['Konto B (mann): Zwei', 'nicht bestanden', 'nicht gelaufen']);
+    });
+
+    test('a test that never started, and the harness stop of the run, are abgebrochen', () => {
+      for (const b of [
+        { results: [] },
+        {
+          results: [
+            {
+              status: 'failed',
+              steps: [],
+              errors: [
+                {
+                  message:
+                    'UmgebungNichtGestartet: Umgebung nicht gestartet: d-acme-de--main.dating.staging.example.test zeigt nicht die App (HTTP 404).',
+                },
+              ],
+            },
+          ],
+        },
+      ]) {
+        const r = parseResult(two(b) as never, [], plan2);
+        expect(rows(r).filter((x) => String(x[0]).startsWith('Konto B'))).toEqual([
+          ['Konto B (mann): Eins', 'abgebrochen', ''],
+          ['Konto B (mann): Zwei', 'abgebrochen', ''],
+        ]);
+      }
+    });
+  });
+
+  test('without an abort a check that did not run stays nicht gelaufen', () => {
+    const r = parseResult(
+      report({
+        results: [
+          {
+            status: 'failed',
+            steps: [{ title: 'Eins', error: { message: 'Knopf fehlt' } }],
+            errors: [],
+          },
+        ],
+      }) as never,
+      [],
+      plan(),
+    );
+    expect(r.checks.find((c) => c.title === 'Zwei')).toMatchObject({
+      outcome: 'nicht bestanden',
+      note: 'nicht gelaufen',
+    });
+    expect(renderStand(r, 'ACME-1', HOST, ['iPhone 16'], DATE).split('\n')[0]).not.toContain(
+      'abgebrochen',
+    );
+  });
+});
+
+describe('internal errors of the device service', () => {
+  test('stay out of every row (neutral note), and go to the log', () => {
+    const r = parseResult(
+      {
+        suites: [
+          {
+            title: 'a.spec.ts',
+            specs: [
+              {
+                title: 'Konto A (frau)',
+                tests: [
+                  {
+                    projectName: 'safari-iPhone 16:18-browserstack-mobile',
+                    results: [
+                      {
+                        status: 'failed',
+                        steps: [
+                          {
+                            title: 'Eins',
+                            error: {
+                              message:
+                                'Error: 14 UNAVAILABLE: connect ECONNREFUSED /tmp/sdk-platform-1.sock',
+                            },
+                          },
+                        ],
+                        errors: [],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      } as never,
+      [],
+    );
+    expect(r.checks[0]).toMatchObject({ title: 'Eins', outcome: 'nicht bestanden' });
+    expect(r.checks[0].note).not.toMatch(/ECONNREFUSED|UNAVAILABLE|sdk-platform/);
+    expect(r.checks[0].note).toContain('Log');
+    expect(r.log.join('\n')).toContain('ECONNREFUSED');
+  });
+  test('an app or environment failure keeps its own text, abort or not', () => {
+    for (const message of [
+      'page.goto: 503 Service Unavailable',
+      'TypeError: fetch failed: connect ECONNREFUSED 127.0.0.1:443',
+    ]) {
+      const result = {
+        suites: [
+          {
+            title: 'a.spec.ts',
+            specs: [
+              {
+                title: 'Konto A (frau)',
+                tests: [
+                  {
+                    projectName: 'safari-iPhone 16:18-browserstack-mobile',
+                    results: [
+                      {
+                        status: 'failed',
+                        steps: [{ title: 'Eins', error: { message } }],
+                        errors: [],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      } as never;
+      for (const aborted of [undefined, 'Strg+C']) {
+        const r = parseResult(result, [], {
+          tests: [{ title: 'Konto A (frau)', checks: ['Eins'] }],
+          devices: ['iPhone 16'],
+          ...(aborted ? { aborted } : {}),
+        });
+        expect(r.checks[0]).toMatchObject({ outcome: 'nicht bestanden', note: message });
+        expect(r.log).toEqual([]);
+      }
+    }
+  });
+});

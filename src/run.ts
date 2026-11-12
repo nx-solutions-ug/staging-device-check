@@ -62,7 +62,16 @@ export type RunMeta = {
   devices?: string[];
   /** the checks of each persona test, read from the spec before the SDK starts */
   plan?: SpecPlan['tests'];
+  /**
+   * why the run was stopped before its end: report writes "abgebrochen" for what did not finish. Set to
+   * "sofort beendet" when the SDK starts and cleared at a normal end, so a hard stop (second Ctrl+C, hang-up,
+   * SIGKILL, a crash) that never reaches the end of `runTests` still leaves the mark.
+   */
+  aborted?: 'Strg+C' | 'Umgebung nicht gestartet' | typeof HARD_STOP;
 };
+
+/** run.json's `aborted` while the SDK runs: what stays when the run ends without reaching its own end */
+export const HARD_STOP = 'sofort beendet';
 
 const RUN_YML = '.browserstack.run.yml';
 const TOKENS = '.run-tokens';
@@ -374,7 +383,7 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
     }
     writeFileSync(
       join(dir, 'run.json'),
-      `${JSON.stringify({ ...meta, devices: chosen, plan: planned.tests }, null, 2)}\n`,
+      `${JSON.stringify({ ...meta, devices: chosen, plan: planned.tests, aborted: HARD_STOP }, null, 2)}\n`,
     );
     // The harness throws UmgebungNichtGestartet on the first test; the remaining tests would open device sessions
     // against a host that shows no app, so the SDK is stopped right there.
@@ -416,7 +425,12 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
     out.end();
     err.end();
     opts.signal?.removeEventListener('abort', outside);
-    if (stop.signal.aborted) {
+    const runFile = join(dir, 'run.json');
+    const { aborted: _running, ...ended } = readMeta(dir);
+    if (!stop.signal.aborted) writeFileSync(runFile, `${JSON.stringify(ended, null, 2)}\n`);
+    else {
+      const aborted: RunMeta['aborted'] = notStarted ? 'Umgebung nicht gestartet' : 'Strg+C';
+      writeFileSync(runFile, `${JSON.stringify({ ...ended, aborted }, null, 2)}\n`);
       d.err(
         notStarted
           ? `Lauf abgebrochen: ${meta.host} zeigt nicht die App (Umgebung nicht gestartet). Die übrigen Tests wurden nicht gestartet.`

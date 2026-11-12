@@ -131,7 +131,7 @@ run; the credentials only in the child env. **Minutes: 0.5** (API session sum 9.
 
 - ~~**The `report` note.**~~ Fixed: notes drop ANSI codes.
 - ~~**The abort live check.**~~ Done in the staging run below.
-- **`result.json` after an abort:** not written (see below).
+- ~~**`result.json` after an abort.**~~ Written since the abort sends SIGINT first (re-probe below).
 
 ## 12.11.2026 — first end-to-end run against a staging app
 
@@ -147,7 +147,7 @@ run; the credentials only in the child env. **Minutes: 0.5** (API session sum 9.
 - One ticket, read only, with a status comment on staging. Registration up to the last step before the account is
   created, nothing submitted, no account created.
 
-**Minutes.** Seven runs, ≈ 8.4 min in all:
+**Minutes.** Eight runs, ≈ 9.3 min in all:
 
 | Run | Devices          | Minutes | Outcome                                                     |
 | --- | ---------------- | ------- | ----------------------------------------------------------- |
@@ -158,6 +158,7 @@ run; the credentials only in the child env. **Minutes: 0.5** (API session sum 9.
 | 5   | iPhone + Android | 2.1     | iPhone passes; Android shows two layout failures of the app |
 | 6   | Android          | 1.1     | Re-check of one Android measurement                         |
 | 7   | iPhone           | 0.5     | Abort probe                                                 |
+| 8   | iPhone           | 0.9     | Abort re-probe after the SIGINT-first fix                   |
 
 **Found and fixed.**
 
@@ -186,17 +187,29 @@ The ticket's flow exists only on the marked host, so the runs used it.
 - The CLI exited 6 s after the signal and cleaned the run folder; no token list or yml copy was left.
 - BrowserStack ended the session (status `error`, 27 s): it was not left idling on the trial minutes.
 - No SDK or Playwright process of the run was left.
-- `result.json` was not written: the SDK group stops before the Playwright reporter writes it, so `report` has
-  nothing to read after an abort.
+- `result.json` was not written: on SIGTERM the whole SDK group stopped within a second, before the Playwright
+  reporter wrote it.
+
+**Abort re-probe after the fix.** An abort now sends SIGINT to the SDK group first, SIGTERM after 10 s and SIGKILL
+after 15 s.
+
+- The CLI exited 7 s after the signal with exit code 130.
+- `result.json` was written, and `report` rendered a section: every planned check "nicht gelaufen". The abort came
+  before the first check.
+- The session ended at BrowserStack (status `done`). No token list or yml copy was left. Two processes of the run
+  were still exiting when the CLI ended; they were gone 15 s later.
+- The section did not say that the run was aborted, and one row carried the SDK's internal connection error (its
+  helper process stops on SIGINT before Playwright does). Fixed since: `run` records the abort in `run.json`, the
+  rows read "abgebrochen", and internal errors of the device service go to stderr only.
 
 **Redaction scan after the runs.** In-process search for the username, the key, their combined, base64,
 URI-encoded and JSON-escaped forms, and the gate password:
 
 | Place searched                                                                            | Files | Hits |
 | ----------------------------------------------------------------------------------------- | ----- | ---- |
-| Seven run folders                                                                         | 64    | 0    |
+| Eight run folders                                                                         | 71    | 0    |
 | The whole profile `HOME`, including the SDK's `~/.browserstack` (`node_modules` excluded) | 1000  | 0    |
-| The streamed CLI output of every run                                                      | 7     | 0    |
+| The streamed CLI output of every run                                                      | 8     | 0    |
 
 Run tokens are masked from the run's own token list, which the clean pass deletes afterwards, so their values
 could not be searched for after the run. The run-token cookie's name appears in no file of the run folders, the SDK

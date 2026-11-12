@@ -460,6 +460,82 @@ describe('prepare, run and report through the CLI', () => {
     expect(out.join('\n')).toContain('**Gerätetest 12.11.2026');
   });
 
+  test('report after an abort: the section says abgebrochen, SDK errors only on stderr', async () => {
+    const h = home();
+    const dir = join(h.root, 'run');
+    mkdirSync(dir, { recursive: true });
+    const sdkError = 'Error: 14 UNAVAILABLE: connect ECONNREFUSED /tmp/sdk-platform-2.sock';
+    writeFileSync(
+      join(dir, 'result.json'),
+      JSON.stringify({
+        suites: [
+          {
+            title: 'tests-e2e.spec.ts',
+            specs: [
+              {
+                title: 'Konto A (frau)',
+                tests: [
+                  {
+                    projectName: 'safari-iPhone 16:18-browserstack-mobile',
+                    results: [{ status: 'failed', steps: [], errors: [{ message: sdkError }] }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    writeFileSync(
+      join(dir, 'run.json'),
+      JSON.stringify({
+        ticket: 'ACME-1',
+        host: 'd-acme-de--main.dating.staging.example.test',
+        createdAt: '2026-11-12T10:30:00',
+        devices: ['iPhone 16'],
+        plan: [{ title: 'Konto A (frau)', checks: ['Eins', 'Zwei'] }],
+        aborted: 'Strg+C',
+      }),
+    );
+    const { d, out, err } = deps(h.env);
+    expect(await main(['report', dir, 'ACME-1'], d)).toBe(0);
+    const md = readFileSync(join(dir, 'stand-abschnitt.md'), 'utf8');
+    expect(md).toContain('abgebrochen (Strg+C)');
+    expect(md).toContain('| Eins | abgebrochen |');
+    expect(md + out.join('\n')).not.toMatch(/ECONNREFUSED|UNAVAILABLE|sdk-platform/);
+    expect(err.join('\n')).toContain('ECONNREFUSED');
+  });
+
+  test('report after a hard stop without result.json: every planned check abgebrochen, exit 0', async () => {
+    const h = home();
+    const dir = join(h.root, 'run');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, 'run.json'),
+      JSON.stringify({
+        ticket: 'ACME-1',
+        host: 'd-acme-de--main.dating.staging.example.test',
+        createdAt: '2026-11-12T10:30:00',
+        devices: ['iPhone 16', 'Samsung Galaxy S23'],
+        plan: [{ title: 'Konto A (frau)', checks: ['Eins', 'Zwei'] }],
+        aborted: 'sofort beendet',
+      }),
+    );
+    const { d, err } = deps(h.env);
+    expect(await main(['report', dir, 'ACME-1'], d)).toBe(0);
+    const md = readFileSync(join(dir, 'stand-abschnitt.md'), 'utf8');
+    expect(md.split('\n')[0]).toContain('– abgebrochen (sofort beendet)');
+    expect(md).toContain('| Eins | abgebrochen | abgebrochen |');
+    expect(md).toContain('| Zwei | abgebrochen | abgebrochen |');
+    expect(err.join('\n')).not.toContain('ENOENT');
+
+    // without the mark a missing result.json is still an error: nothing to report
+    const meta = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8'));
+    delete meta.aborted;
+    writeFileSync(join(dir, 'run.json'), JSON.stringify(meta));
+    expect(await main(['report', dir, 'ACME-1'], deps(h.env).d)).toBe(1);
+  });
+
   test('prepare validates its arguments', async () => {
     const h = home();
     const { d, err } = deps(h.env);

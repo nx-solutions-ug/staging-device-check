@@ -85,12 +85,13 @@ Nie passiert, auch nicht mit deinem Ja:
 
 ## Was die Ergebnisse bedeuten
 
-| Ergebnis               | Bedeutung                                                                                              |
-| ---------------------- | ------------------------------------------------------------------------------------------------------ |
-| **bestanden**          | Gemessen und in Ordnung: Text, Elemente, Maße, Layout-Regeln                                           |
-| **nicht bestanden**    | Gemessen und nicht in Ordnung. Auch eine Prüfung, die ohne Grund übersprungen wurde                    |
-| **zu prüfen (Bild)**   | Das kann nur ein Mensch beurteilen, etwa ob es wie im Entwurf aussieht. Schau dir das genannte Bild an |
-| **nicht prüfbar hier** | BrowserStack kann das nicht prüfen. Bitte auf deinem eigenen Handy nachsehen                           |
+| Ergebnis               | Bedeutung                                                                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| **bestanden**          | Gemessen und in Ordnung: Text, Elemente, Maße, Layout-Regeln                                                                               |
+| **nicht bestanden**    | Gemessen und nicht in Ordnung. Auch eine Prüfung, die ohne Grund übersprungen wurde                                                        |
+| **zu prüfen (Bild)**   | Das kann nur ein Mensch beurteilen, etwa ob es wie im Entwurf aussieht. Schau dir das genannte Bild an                                     |
+| **nicht prüfbar hier** | BrowserStack kann das nicht prüfen. Bitte auf deinem eigenen Handy nachsehen                                                               |
+| **abgebrochen**        | Der Lauf wurde vorher beendet (Strg+C, „Umgebung nicht gestartet“ oder „sofort beendet“). Diese Prüfung lief nicht zu Ende — kein Ergebnis |
 
 **Die iPhone-Tastatur:** Auf iPhones öffnet BrowserStack keine Bildschirm-Tastatur.
 

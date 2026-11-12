@@ -21,7 +21,7 @@ import { loadConfig, type Config } from './config.js';
 import { GateError, gateLogin, mintRunToken } from './gate.js';
 import { appHost } from './hosts.js';
 import { stateDir } from './paths.js';
-import { parseResult, renderStand } from './report.js';
+import { parseResult, renderStand, type PlaywrightReport } from './report.js';
 import {
   prepare,
   readMeta,
@@ -363,20 +363,30 @@ async function localState(d: CliDeps): Promise<number> {
 function report(dir: string, ticket: string, d: CliDeps): number {
   validateTicket(ticket);
   const meta = readMeta(dir);
-  const result = JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8'));
+  const resultFile = join(dir, 'result.json');
+  // a hard stop (second Ctrl+C, hang-up, SIGKILL) can end the run before Playwright writes its report: then every
+  // planned check is "abgebrochen", from run.json's plan and mark alone
+  const result: PlaywrightReport =
+    !existsSync(resultFile) && meta.aborted && meta.plan
+      ? { suites: [] }
+      : JSON.parse(readFileSync(resultFile, 'utf8'));
   const shotsDir = join(dir, 'screenshots');
   const shots = existsSync(shotsDir) ? readdirSync(shotsDir).filter((f) => f.endsWith('.png')) : [];
-  const md = renderStand(
-    parseResult(
-      result,
-      shots,
-      meta.plan ? { tests: meta.plan, devices: meta.devices ?? [] } : undefined,
-    ),
-    ticket,
-    meta.host,
-    meta.devices ?? [],
-    new Date(meta.createdAt),
+  const parsed = parseResult(
+    result,
+    shots,
+    meta.plan
+      ? {
+          tests: meta.plan,
+          devices: meta.devices ?? [],
+          ...(meta.aborted ? { aborted: meta.aborted } : {}),
+        }
+      : undefined,
   );
+  // the device service's own errors stay out of the section: here, for whoever reads the log
+  for (const line of parsed.log)
+    d.err(`Interner Fehler des Gerätedienstes (nicht im Abschnitt): ${line}`);
+  const md = renderStand(parsed, ticket, meta.host, meta.devices ?? [], new Date(meta.createdAt));
   writeFileSync(join(dir, 'stand-abschnitt.md'), md);
   d.out(md.trimEnd());
   return 0;

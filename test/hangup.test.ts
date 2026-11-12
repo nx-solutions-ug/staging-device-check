@@ -77,3 +77,76 @@ describe('the CLI process ends without leaving the SDK or secrets behind', () =>
     }, 15_000);
   }
 });
+
+/**
+ * A real CLI process running `runTests` (the SDK stand-in is an `sh` with a background `sleep`), with the CLI's real
+ * signal wiring. It prints its run folder once the SDK runs.
+ */
+const RUN_SCRIPT = `
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { realDeps } from ${JSON.stringify(join(ROOT, 'src', 'cli.ts'))};
+import { saveConfig } from ${JSON.stringify(join(ROOT, 'src', 'config.ts'))};
+import { hardStop, prepare, realSpawn, runTests } from ${JSON.stringify(join(ROOT, 'src', 'run.ts'))};
+import { sampleConfig } from ${JSON.stringify(join(ROOT, 'test', 'fixtures', 'config.ts'))};
+const [root] = process.argv.slice(2);
+const env = { HOME: root, XDG_CONFIG_HOME: join(root, 'cfg'), XDG_DATA_HOME: join(root, 'data'), PATH: process.env.PATH };
+const ws = join(root, 'data', 'staging-device-check', 'workspace');
+mkdirSync(join(ws, 'node_modules', '.bin'), { recursive: true });
+mkdirSync(join(ws, 'harness'), { recursive: true });
+const yml = join(root, 'browserstack.yml');
+cpSync(${JSON.stringify(join(ROOT, 'test', 'fixtures', 'yml', 'sample.yml'))}, yml);
+chmodSync(yml, 0o600);
+saveConfig(sampleConfig({ browserstackYml: yml }), env);
+const d = {
+  env,
+  secret: { env, platform: 'linux', run: (_c, args) => ({ status: 0, stdout: args[0] === 'lookup' ? 'invented-gate-password-0004' : '' }) },
+  fetchFn: async () => Response.json([]),
+  now: () => new Date('2026-11-12T10:30:00'),
+  listTests: async () => 1,
+  spawn: (_cmd, _args, opts, out, err) =>
+    realSpawn('sh', ['-c', 'echo $$ > sdk.pid; sleep 60 & echo $! > grandchild.pid; wait'], opts, out, err),
+  out: () => {},
+  err: () => {},
+};
+const dir = prepare('ACME-1', 'd-acme-de--main.dating.staging.example.test', d);
+const abort = new AbortController();
+realDeps().interrupts(() => abort.abort(), hardStop);
+void runTests(dir, { signal: abort.signal }, d);
+const ready = setInterval(() => {
+  const f = join(dir, 'grandchild.pid');
+  if (!existsSync(f) || !readFileSync(f, 'utf8').trim()) return;
+  clearInterval(ready);
+  process.stdout.write(dir + '\\n');
+}, 50);
+`;
+
+describe('a run ended without reaching its own end still says so in run.json', () => {
+  for (const signal of ['SIGHUP', 'SIGKILL'] as const) {
+    test(`${signal}: run.json keeps aborted "sofort beendet"`, async () => {
+      const root = mkdtempSync(join(tmpdir(), 'sdc-hard-'));
+      const script = join(root, 'cli-run.ts');
+      writeFileSync(script, RUN_SCRIPT);
+      const child = spawn(process.execPath, [script, root], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const exited = new Promise<number | null>((r) => child.on('close', (c) => r(c)));
+      const dir = await Promise.race([
+        new Promise<string>((r) => child.stdout.on('data', (b) => r(String(b).trim()))),
+        exited.then(() => ''),
+      ]);
+      let pids: number[] = [];
+      try {
+        expect(dir).not.toBe('');
+        pids = ['sdk.pid', 'grandchild.pid'].map((f) => Number(readFileSync(join(dir, f), 'utf8')));
+        child.kill(signal);
+        await exited;
+        expect(JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')).aborted).toBe(
+          'sofort beendet',
+        );
+      } finally {
+        // a SIGKILL'd CLI leaves its detached SDK group behind: reap it here
+        for (const pid of pids) if (alive(pid)) process.kill(pid, 'SIGKILL');
+        rmSync(root, { recursive: true, force: true });
+      }
+    }, 15_000);
+  }
+});
