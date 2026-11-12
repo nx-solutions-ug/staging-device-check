@@ -1,0 +1,11 @@
+#!/bin/sh
+# The plugin's CLI on the plugin's own Node. Its bin folder goes first on PATH for this process only, so npm, npx,
+# Playwright and the BrowserStack SDK (all started through `env node`) use the same Node.
+set -eu
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$here/node-env.sh"
+sdc_find_node || exit 127
+PATH=$SDC_NODE_BIN:$PATH
+export PATH
+root=$(CDPATH= cd -- "$here/.." && pwd)
+exec "$SDC_NODE_BIN/node" "$root/dist/cli.js" "$@"

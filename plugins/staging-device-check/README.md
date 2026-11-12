@@ -15,7 +15,6 @@ In Claude Code:
 
 Du brauchst:
 
-- Node 26 oder neuer;
 - Google Chrome für die lokale Vorschau;
 - deine `browserstack.yml` mit deinem BrowserStack-Zugang;
 - das Staging-Passwort;
@@ -36,12 +35,20 @@ Claude fragt nacheinander:
 - deine Testkonten;
 - deine Jira-Seite.
 
+Du brauchst dafür kein Node und kein Terminal: Das Plugin lädt sein eigenes Node selbst herunter (geprüft, ohne
+Administrator-Rechte) und legt es in deinen Benutzerordner.
+
 Das Staging-Passwort gibst du **nicht im Chat** ein:
 
-1. Claude zeigt dir einen Befehl.
-2. Den fügst du in ein eigenes Terminal-Fenster ein (Programm „Terminal“).
-3. Dort tippst du das Passwort zweimal. Beim Tippen siehst du nichts.
-4. Gespeichert wird es im Schlüsselbund deines Macs.
+1. Ein kleines Fenster fragt nach dem Passwort. Du tippst es zweimal; beim Tippen siehst du nichts.
+2. Gespeichert wird es im Schlüsselbund deines Macs (auf Linux im Passwort-Manager des Desktops).
+3. Abbrechen speichert nichts.
+
+Nur wo kein solches Fenster aufgehen kann, etwa auf einem Rechner ohne Bildschirm, zeigt Claude dir einen Befehl für
+ein eigenes Terminal-Fenster.
+
+Nach dem ersten Setup startest du Claude Code einmal neu (oder verbindest den Browser über `/mcp` neu), damit der
+lokale Browser mit dem neuen Node startet.
 
 Zum Schluss prüft Claude alles und sagt „bereit“ oder nennt, was noch fehlt. Einzelne Werte änderst du später,
 indem du das Setup noch einmal aufrufst.

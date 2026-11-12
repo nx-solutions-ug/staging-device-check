@@ -1,0 +1,16 @@
+#!/bin/sh
+# The plugin's Playwright MCP server (.mcp.json): the pinned @playwright/mcp through the plugin's own Node, isolated,
+# with the local gate session, at phone size. `--check`: only says which Node it would start with.
+set -eu
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$here/node-env.sh"
+sdc_find_node || exit 127
+PATH=$SDC_NODE_BIN:$PATH
+export PATH
+if [ "${1:-}" = "--check" ]; then
+  echo "startet über $SDC_NODE_FROM ($SDC_NODE_BIN)"
+  exit 0
+fi
+exec "$SDC_NODE_BIN/npx" -y @playwright/mcp@0.0.84 --isolated \
+  --storage-state "${XDG_DATA_HOME:-$HOME/.local/share}/staging-device-check/gate-state.json" \
+  --viewport-size 393x852

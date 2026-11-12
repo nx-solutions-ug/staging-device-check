@@ -12,12 +12,12 @@ Talk to the tester in German. Read these before writing the test: `references/st
 comment and the result section), `references/layout-rules.md`, `references/ios-limits.md`, `references/safety.md`.
 The safety rules win over everything below.
 
-The CLI is `node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" <command>`. If a command reports something as "fehlt", stop and
+The CLI is `sh "${CLAUDE_PLUGIN_ROOT}/scripts/sdc" <command>`. If a command reports something as "fehlt", stop and
 point her to `/staging-device-check:setup`.
 
 **Settings:** `${XDG_CONFIG_HOME:-$HOME/.config}/staging-device-check/config.json` (`jiraSite`, `standMarker`,
 `projects`, `accounts`, `hostPattern`, `apex`). Read that file when a step needs a value; it holds no secrets, but
-never open or print her `browserstack.yml`. `node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" doctor` shows whether the setup
+never open or print her `browserstack.yml`. `sh "${CLAUDE_PLUGIN_ROOT}/scripts/sdc" doctor` shows whether the setup
 is complete.
 
 ## 1. Read the ticket (read only)
@@ -36,7 +36,7 @@ attachments (design screenshots), and the **latest comment whose first line star
 2. Branch: `main` when the stage line says `übernommen ✅ · auf Staging ✅` and nothing names a branch. A branch name
    comes from the ticket's development panel or from her, never guessed.
 3. Build the host with the CLI, never by hand:
-   `node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" host <project name or label> [<branch>]` prints it (branch default
+   `sh "${CLAUDE_PLUGIN_ROOT}/scripts/sdc" host <project name or label> [<branch>]` prints it (branch default
    `main`).
 4. Show it and wait for her confirmation ("Ich teste auf `<host>` — stimmt das?").
 5. Ask whether the branch has a live demo (the status comment may say so). With a live demo, login codes land in
@@ -45,7 +45,7 @@ attachments (design screenshots), and the **latest comment whose first line star
 
 ## 3. Look before writing (local, costs no minutes)
 
-1. `node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" local-state` for a fresh gate session. If the Playwright MCP was already
+1. `sh "${CLAUDE_PLUGIN_ROOT}/scripts/sdc" local-state` for a fresh gate session. If the Playwright MCP was already
    running, it needs `/mcp` → reconnect to pick it up.
 2. With the Playwright MCP (it starts at 393×852), open `https://<host>/` and the pages the ticket touches. Learn the
    steps, labels, roles and states from the live page. Record selectors and visible texts only — no tokens, no page
@@ -56,7 +56,7 @@ attachments (design screenshots), and the **latest comment whose first line star
 
 ## 4. Write the test
 
-`node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" prepare <TICKET> --host <host>` creates the run folder and prints it.
+`sh "${CLAUDE_PLUGIN_ROOT}/scripts/sdc" prepare <TICKET> --host <host>` creates the run folder and prints it.
 Write `tests-e2e.spec.ts` into that folder: **one `test` per persona** (one device session and one sign-in each),
 and inside it **one `check('<Prüfung>', …)` per check**. `check()` is the harness's step: its title is the row of the
 result section, and it owns everything about that row (the keyboard skip on iOS, the "zu prüfen" note), so title and
@@ -166,7 +166,7 @@ premium purchases, anything that would send mail outside staging.
 
 ## 6. Run and report
 
-1. `node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" run <folder>`, plus `--mailbox demo` when step 2 said so, and
+1. `sh "${CLAUDE_PLUGIN_ROOT}/scripts/sdc" run <folder>`, plus `--mailbox demo` when step 2 said so, and
    `--devices iphone` / `--devices android` only if she wants one. If it refuses for the minutes, tell her the
    numbers; add `--confirm-minutes N` only after she agreed to that number.
    - A run takes several minutes. Start it with the Bash tool in the background (`run_in_background: true`), never a
@@ -176,7 +176,7 @@ premium purchases, anything that would send mail outside staging.
      runs, tell her it is running and on which devices.
 2. "Umgebung nicht gestartet" in the output: the run stopped after the first test; tell her to open the branch once
    from the staging dashboard.
-3. `node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" report <folder> <TICKET>` writes `stand-abschnitt.md` and prints it. Show
+3. `sh "${CLAUDE_PLUGIN_ROOT}/scripts/sdc" report <folder> <TICKET>` writes `stand-abschnitt.md` and prints it. Show
    the section as it is, and the path of the `screenshots` folder. She checks the images marked "zu prüfen", then
    pastes the section into the status comment and attaches the images herself.
 
