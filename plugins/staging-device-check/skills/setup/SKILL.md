@@ -72,9 +72,13 @@ starts: if the MCP was already running, tell her to reconnect it with `/mcp` (or
 
 ## 5. Check
 
-`node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" doctor` prints one line per check, `ok`, `fehlt` or `hinweis`.
+1. **Jira lesbar:** with her Atlassian tools, read one issue on the `jiraSite` from the settings (for example the
+   most recently updated issue she can see). Only read; never write. If that fails, the Jira connection is missing
+   or points to another site: tell her to connect Atlassian in Claude Code (`/mcp`) and to check `jiraSite`. Report
+   it as "fehlt Jira".
+2. `node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" doctor` prints one line per check, `ok`, `fehlt` or `hinweis`.
 
-- No `fehlt`: say "Bereit — du kannst jetzt `/tests-e2e <TICKET>` aufrufen."
+- No `fehlt` (Jira included): say "Bereit — du kannst jetzt `/tests-e2e <TICKET>` aufrufen."
 - Otherwise: list each `fehlt` line with what to do, in plain German, and offer to go through that step again.
 - `hinweis` lines (for example a `browserstack.yml` inside a git folder, or few minutes left) are worth reading
   out, but do not block.

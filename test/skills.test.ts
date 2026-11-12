@@ -77,6 +77,17 @@ describe('skills', () => {
     expect(md).toContain('doctor');
     expect(md).toContain('install-workspace');
     expect(md).toContain('local-state');
+    // spec §5: Jira must be readable through her Atlassian connection
+    expect(md).toMatch(/Jira[^\n]*(lesbar|readable)/);
+  });
+
+  test('tests-e2e names the settings file and builds the host through the CLI', () => {
+    const md = read('skills', 'tests-e2e', 'SKILL.md');
+    expect(md).toContain('${XDG_CONFIG_HOME:-$HOME/.config}/staging-device-check/config.json');
+    expect(md).toContain('cli.js" host');
+    expect(md).toContain('cli.js" doctor');
+    // the example asserts concrete rule outcomes, not just "not failed"
+    expect(md).not.toContain(".not.toBe('nicht bestanden')");
   });
 });
 

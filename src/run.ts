@@ -16,7 +16,7 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { isMap, isSeq, parseDocument, YAMLSeq } from 'yaml';
+import { isMap, isSeq, parseDocument, YAMLSeq, type YAMLMap } from 'yaml';
 import { checkYml, usedMinutes } from './bsyml.js';
 import { evaluateArgFindings } from './evaluate-guard.js';
 import { specPlan, type SpecPlan } from './spec-plan.js';
@@ -85,6 +85,9 @@ export default defineConfig({
   outputDir: './test-results',
   reporter: [['json', { outputFile: 'result.json' }], ['line']],
   retries: 0,
+  // a code sign-in waits up to 61 s for its send slot plus up to 60 s for the mail; Playwright's default is 30 s
+  timeout: 360_000,
+  expect: { timeout: 15_000 },
   // hasTouch: Android Chrome on BrowserStack refuses tap() without it
   use: { trace: 'off', video: 'off', screenshot: 'off', hasTouch: true },
 });
@@ -132,6 +135,21 @@ type YmlPlan = {
   removed: string[];
 };
 
+/** Key/password fields of browserstackLocalOptions: their values are masked in both paths and removed from a copy. */
+function localSecretKeys(local: YAMLMap): string[] {
+  return local.items
+    .map((pair) => String((pair.key as { value?: unknown })?.value ?? pair.key))
+    .filter((k) => SECRET_FIELD.test(k));
+}
+
+function localOptionSecrets(doc: ReturnType<typeof parseDocument>): string[] {
+  const local = doc.get('browserstackLocalOptions', true);
+  if (!isMap(local)) return [];
+  return localSecretKeys(local)
+    .map((k) => local.get(k))
+    .filter((v): v is string => typeof v === 'string' && v.length > 0);
+}
+
 /**
  * The first iPhone and/or the first Android phone of her yml (desktop platforms have no deviceName and are never
  * chosen). Her file is used in place when it holds exactly these platforms; otherwise a copy holds only them, named
@@ -158,27 +176,16 @@ function planYml(source: string, devices: Device[], buildName: string): YmlPlan 
     chosen.items.push(p);
     names.push(String(p.get('deviceName')));
   }
+  const removed = localOptionSecrets(doc);
   if (all.length === chosen.items.length)
-    return { inPlace: true, text: '', chosen: names, removed: [] };
+    return { inPlace: true, text: '', chosen: names, removed };
   doc.set('platforms', chosen);
   doc.set('buildName', buildName);
   // No copy ever carries credentials: the SDK gets them through the child's env.
   doc.delete('userName');
   doc.delete('accessKey');
-  const removed: string[] = [];
   const local = doc.get('browserstackLocalOptions', true);
-  if (isMap(local)) {
-    // collected first: deleting while iterating the node's own items would skip entries
-    const fields = local.items.map((pair) => ({
-      k: String((pair.key as { value?: unknown })?.value ?? pair.key),
-      v: (pair.value as { value?: unknown } | null)?.value,
-    }));
-    for (const { k, v } of fields) {
-      if (!SECRET_FIELD.test(k)) continue;
-      if (typeof v === 'string' && v) removed.push(v);
-      local.delete(k);
-    }
-  }
+  if (isMap(local)) for (const k of localSecretKeys(local)) local.delete(k);
   return { inPlace: false, text: doc.toString(), chosen: names, removed };
 }
 
@@ -300,7 +307,9 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
   const [user, key] = yml.secretsForRedaction;
   const gate = readGatePassword(d.secret);
   // Default: one iPhone and one Android phone from her yml's platforms.
-  const devices: Device[] = opts.devices?.length ? opts.devices : ['iphone', 'android'];
+  const devices: Device[] = opts.devices?.length
+    ? [...new Set(opts.devices)]
+    : ['iphone', 'android'];
   const deviceCount = devices.length;
   const t = d.now();
   const buildName = `${meta.ticket} ${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
@@ -426,23 +435,59 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
   return code;
 }
 
-/** Real process boundary for the CLI. */
+/** Process groups of running SDK children, for a hard exit (second Ctrl+C). */
+const activeGroups = new Set<number>();
+
+const killGroup = (pid: number, signal: NodeJS.Signals) => {
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    // already gone
+  }
+};
+
+/** Kills every running SDK process group at once (the CLI's second Ctrl+C). */
+export function killActiveGroups(): void {
+  for (const pid of activeGroups) killGroup(pid, 'SIGKILL');
+}
+
+/**
+ * Real process boundary for the CLI. The SDK runs in its own process group (detached), because it starts the
+ * Playwright runner and workers as its own children: an abort sends SIGTERM to the whole group, SIGKILL after 5 s,
+ * and the run folder is cleaned only once the group has exited.
+ */
 export const realSpawn: RunDeps['spawn'] = (cmd, args, opts, onStdout, onStderr) =>
   new Promise((resolve) => {
     const child = nodeSpawn(cmd, args, {
       cwd: opts.cwd,
       env: opts.env,
       stdio: ['ignore', 'pipe', 'pipe'],
-      signal: opts.signal,
+      detached: true,
     });
+    const pid = child.pid;
+    if (pid) activeGroups.add(pid);
+    let hard: ReturnType<typeof setTimeout> | undefined;
+    const onAbort = () => {
+      if (!pid) return;
+      killGroup(pid, 'SIGTERM');
+      hard = setTimeout(() => killGroup(pid, 'SIGKILL'), 5000);
+    };
+    if (opts.signal?.aborted) onAbort();
+    else opts.signal?.addEventListener('abort', onAbort, { once: true });
     child.stdout.setEncoding('utf8').on('data', onStdout);
     child.stderr.setEncoding('utf8').on('data', onStderr);
     child.on('error', (e) => {
-      if (e.name === 'AbortError') return; // stopped on purpose; 'close' follows
       onStderr(`${e.message}\n`);
       resolve(127);
     });
-    child.on('close', (c) => resolve(c ?? 1));
+    child.on('close', (c) => {
+      clearTimeout(hard);
+      opts.signal?.removeEventListener('abort', onAbort);
+      // whatever of the group is left after the leader ended (it no longer holds our pipes) goes too
+      if (pid && opts.signal?.aborted) killGroup(pid, 'SIGKILL');
+      if (pid) activeGroups.delete(pid);
+      resolve(c ?? 1);
+    });
   });
 
 /** Counts the tests with `playwright test --list --reporter=json` (one local project; no BrowserStack). */

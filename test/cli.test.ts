@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   statSync,
   writeFileSync,
@@ -96,6 +97,7 @@ describe('COMMANDS', () => {
       'prepare',
       'run',
       'report',
+      'host',
     ]);
   });
 
@@ -310,6 +312,60 @@ describe('prepare, run and report through the CLI', () => {
     );
     expect(await main(['report', dir, 'ACME-1'], d)).toBe(0);
     expect(out.join('\n')).toContain('| Preis | — | nicht bestanden | Android: nicht gelaufen |');
+  });
+
+  test('host builds the app host from the settings, by project name or label', async () => {
+    const h = home();
+    saveConfig(sampleConfig(), h.env);
+    const { d, out, err } = deps(h.env);
+    expect(await main(['host', 'acme.de'], d)).toBe(0);
+    expect(await main(['host', 'acme-de', 'feat/ACME-42-dark-mode'], d)).toBe(0);
+    expect(out).toEqual([
+      'd-acme-de--main.dating.staging.example.test',
+      'd-acme-de--feat--acme-42-dark-mode.dating.staging.example.test',
+    ]);
+    expect(await main(['host', 'unknown'], d)).toBe(1);
+    expect(err.join('\n')).toContain('acme.de');
+  });
+
+  test('a second Ctrl+C removes the token list and the yml copy before the hard exit', async () => {
+    const h = home();
+    const yml = join(h.root, 'browserstack.yml');
+    cpSync(new URL('./fixtures/yml/sample.yml', import.meta.url).pathname, yml);
+    chmodSync(yml, 0o600);
+    saveConfig(sampleConfig({ browserstackYml: yml }), h.env);
+    const ws = join(h.env.XDG_DATA_HOME as string, 'staging-device-check', 'workspace');
+    mkdirSync(join(ws, 'node_modules', '.bin'), { recursive: true });
+    mkdirSync(join(ws, 'harness'), { recursive: true });
+    let handlers: { stop: () => void; hard: () => void } | null = null;
+    let leftover: string[] = [];
+    const { d } = deps(h.env, {
+      fetchFn: (async () => Response.json([])) as unknown as typeof fetch,
+      listTests: async () => 1,
+      interrupts: (stop, hard) => {
+        handlers = { stop, hard };
+        return () => {};
+      },
+      spawn: async (_c, _a, opts) => {
+        writeFileSync(join(opts.cwd, '.run-tokens'), 'invented-run-token-value-0002\n', {
+          mode: 0o600,
+        });
+        writeFileSync(join(opts.cwd, '.browserstack.run.yml'), 'framework: playwright\n', {
+          mode: 0o600,
+        });
+        handlers?.stop();
+        handlers?.hard();
+        leftover = readdirSync(opts.cwd).filter((f) => f.startsWith('.'));
+        return 130;
+      },
+    });
+    const dir = (await (async () => {
+      await main(['prepare', 'ACME-1', '--host', 'd-acme-de--main.dating.staging.example.test'], d);
+      const base = join(h.root, 'Documents', 'staging-device-check', 'ACME-1');
+      return join(base, readdirSync(base)[0]);
+    })()) as string;
+    await main(['run', dir, '--devices', 'iphone'], d);
+    expect(leftover).toEqual([]);
   });
 
   test('report renders stand-abschnitt.md from result.json', async () => {

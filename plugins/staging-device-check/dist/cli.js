@@ -23030,6 +23030,9 @@ export default defineConfig({
   outputDir: './test-results',
   reporter: [['json', { outputFile: 'result.json' }], ['line']],
   retries: 0,
+  // a code sign-in waits up to 61 s for its send slot plus up to 60 s for the mail; Playwright's default is 30 s
+  timeout: 360_000,
+  expect: { timeout: 15_000 },
   // hasTouch: Android Chrome on BrowserStack refuses tap() without it
   use: { trace: 'off', video: 'off', screenshot: 'off', hasTouch: true },
 });
@@ -23061,6 +23064,14 @@ function prepare(ticket, host, d) {
 var readMeta = (dir) => JSON.parse(readFileSync4(join5(dir, "run.json"), "utf8"));
 var isIos2 = (deviceName) => /^(iphone|ipad)/i.test(deviceName);
 var SECRET_FIELD = /key|pass|secret|token/i;
+function localSecretKeys(local) {
+  return local.items.map((pair) => String(pair.key?.value ?? pair.key)).filter((k) => SECRET_FIELD.test(k));
+}
+function localOptionSecrets(doc) {
+  const local = doc.get("browserstackLocalOptions", true);
+  if (!(0, import_yaml2.isMap)(local)) return [];
+  return localSecretKeys(local).map((k) => local.get(k)).filter((v) => typeof v === "string" && v.length > 0);
+}
 function planYml(source, devices, buildName) {
   const doc = (0, import_yaml2.parseDocument)(readFileSync4(source, "utf8"), { schema: "failsafe" });
   const platforms = doc.get("platforms", true);
@@ -23080,25 +23091,15 @@ function planYml(source, devices, buildName) {
     chosen.items.push(p);
     names.push(String(p.get("deviceName")));
   }
+  const removed = localOptionSecrets(doc);
   if (all.length === chosen.items.length)
-    return { inPlace: true, text: "", chosen: names, removed: [] };
+    return { inPlace: true, text: "", chosen: names, removed };
   doc.set("platforms", chosen);
   doc.set("buildName", buildName);
   doc.delete("userName");
   doc.delete("accessKey");
-  const removed = [];
   const local = doc.get("browserstackLocalOptions", true);
-  if ((0, import_yaml2.isMap)(local)) {
-    const fields = local.items.map((pair) => ({
-      k: String(pair.key?.value ?? pair.key),
-      v: pair.value?.value
-    }));
-    for (const { k, v } of fields) {
-      if (!SECRET_FIELD.test(k)) continue;
-      if (typeof v === "string" && v) removed.push(v);
-      local.delete(k);
-    }
-  }
+  if ((0, import_yaml2.isMap)(local)) for (const k of localSecretKeys(local)) local.delete(k);
   return { inPlace: false, text: doc.toString(), chosen: names, removed };
 }
 function redactingStream(write, redact) {
@@ -23196,7 +23197,7 @@ async function runTests(dir, opts, d) {
   }
   const [user, key] = yml.secretsForRedaction;
   const gate = readGatePassword(d.secret);
-  const devices = opts.devices?.length ? opts.devices : ["iphone", "android"];
+  const devices = opts.devices?.length ? [...new Set(opts.devices)] : ["iphone", "android"];
   const deviceCount = devices.length;
   const t = d.now();
   const buildName = `${meta.ticket} ${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}`;
@@ -23310,22 +23311,47 @@ async function runTests(dir, opts, d) {
   }
   return code2;
 }
+var activeGroups = /* @__PURE__ */ new Set();
+var killGroup = (pid, signal) => {
+  try {
+    process.kill(-pid, signal);
+  } catch {
+  }
+};
+function killActiveGroups() {
+  for (const pid of activeGroups) killGroup(pid, "SIGKILL");
+}
 var realSpawn = (cmd, args, opts, onStdout, onStderr) => new Promise((resolve2) => {
   const child = nodeSpawn(cmd, args, {
     cwd: opts.cwd,
     env: opts.env,
     stdio: ["ignore", "pipe", "pipe"],
-    signal: opts.signal
+    detached: true
   });
+  const pid = child.pid;
+  if (pid) activeGroups.add(pid);
+  let hard;
+  const onAbort = () => {
+    if (!pid) return;
+    killGroup(pid, "SIGTERM");
+    hard = setTimeout(() => killGroup(pid, "SIGKILL"), 5e3);
+  };
+  if (opts.signal?.aborted) onAbort();
+  else opts.signal?.addEventListener("abort", onAbort, { once: true });
   child.stdout.setEncoding("utf8").on("data", onStdout);
   child.stderr.setEncoding("utf8").on("data", onStderr);
   child.on("error", (e) => {
-    if (e.name === "AbortError") return;
     onStderr(`${e.message}
 `);
     resolve2(127);
   });
-  child.on("close", (c) => resolve2(c ?? 1));
+  child.on("close", (c) => {
+    clearTimeout(hard);
+    opts.signal?.removeEventListener("abort", onAbort);
+    if (pid && opts.signal?.aborted) killGroup(pid, "SIGKILL");
+    if (pid) activeGroups.delete(pid);
+    resolve2(c ?? 1);
+  });
 });
 var realListTests = (spawn, env) => async (dir) => {
   let json = "";
@@ -23353,7 +23379,8 @@ var COMMANDS = [
   "local-state",
   "prepare",
   "run",
-  "report"
+  "report",
+  "host"
 ];
 var MIN_PASSWORD = 16;
 var gateStatePath = (env) => join6(stateDir(env), "gate-state.json");
@@ -23366,7 +23393,8 @@ var USAGE = `Befehle:
   local-state                        Gate-Sitzung f\xFCr den lokalen Browser (Playwright MCP) anlegen
   prepare <TICKET> --host <host>     Run-Ordner anlegen
   run <ordner> [--devices iphone,android] [--confirm-minutes N] [--mailbox shared|demo]
-  report <ordner> <TICKET>           Stand-Abschnitt aus result.json erzeugen`;
+  report <ordner> <TICKET>           Stand-Abschnitt aus result.json erzeugen
+  host <projekt> [<branch>]          App-Host aus den Einstellungen bilden (Branch: main)`;
 function flag(args, name) {
   const i = args.indexOf(`--${name}`);
   if (i < 0) return void 0;
@@ -23595,7 +23623,14 @@ async function main(argv, d) {
         if (confirmMinutes !== void 0 && !Number.isFinite(confirmMinutes))
           throw new UsageError("--confirm-minutes braucht eine Zahl.");
         const abort = new AbortController();
-        const release = d.interrupts?.(() => abort.abort()) ?? (() => {
+        const release = d.interrupts?.(
+          () => abort.abort(),
+          () => {
+            rmSync4(join6(dir, ".run-tokens"), { force: true });
+            rmSync4(join6(dir, ".browserstack.run.yml"), { force: true });
+            killActiveGroups();
+          }
+        ) ?? (() => {
         });
         try {
           return await runTests(
@@ -23611,6 +23646,22 @@ async function main(argv, d) {
         } finally {
           release();
         }
+      }
+      case "host": {
+        const [project, branch = "main"] = args;
+        if (!project)
+          throw new UsageError("host braucht das Projekt (Name oder Label aus den Einstellungen).");
+        const config = loadConfig(d.env);
+        if (!config) throw new Error("Noch keine Einstellungen \u2014 bitte das Setup ausf\xFChren.");
+        const label = config.projects[project] ?? Object.values(config.projects).find((l) => l === project);
+        if (!label)
+          throw new Error(
+            `Projekt \u201E${project}\u201C steht nicht in den Einstellungen. Bekannt: ${Object.entries(
+              config.projects
+            ).map(([n, l]) => `${n} (${l})`).join(", ")}.`
+          );
+        d.out(appHost(config, label, branch));
+        return 0;
       }
       case "report": {
         const [dir, ticket] = args;
@@ -23692,8 +23743,20 @@ function realDeps() {
     prompt: hiddenPrompt,
     workspaceSource: fileURLToPath(new URL("../workspace/", import.meta.url)),
     nodeVersion: process.versions.node,
-    interrupts: (stop) => {
-      const on = () => stop();
+    interrupts: (stop, hard) => {
+      let count = 0;
+      const on = () => {
+        count += 1;
+        if (count === 1) {
+          process.stderr.write(
+            "\nLauf wird abgebrochen und aufger\xE4umt \u2026 (noch einmal Strg+C: sofort beenden)\n"
+          );
+          stop();
+          return;
+        }
+        hard();
+        process.exit(130);
+      };
       process.on("SIGINT", on);
       process.on("SIGTERM", on);
       return () => {

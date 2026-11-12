@@ -15,6 +15,11 @@ The safety rules win over everything below.
 The CLI is `node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" <command>`. If a command reports something as "fehlt", stop and
 point her to `/staging-device-check:setup`.
 
+**Settings:** `${XDG_CONFIG_HOME:-$HOME/.config}/staging-device-check/config.json` (`jiraSite`, `standMarker`,
+`projects`, `accounts`, `hostPattern`, `apex`). Read that file when a step needs a value; it holds no secrets, but
+never open or print her `browserstack.yml`. `node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" doctor` shows whether the setup
+is complete.
+
 ## 1. Read the ticket (read only)
 
 With her Atlassian tools, on the Jira site from the settings: description, acceptance criteria / "Done when",
@@ -30,8 +35,9 @@ attachments (design screenshots), and the **latest comment whose first line star
 1. Project: from the ticket, or ask. Its host label comes from `projects` in the settings.
 2. Branch: `main` when the stage line says `übernommen ✅ · auf Staging ✅` and nothing names a branch. A branch name
    comes from the ticket's development panel or from her, never guessed.
-3. Build the host from `hostPattern` exactly as the CLI does: `{project}` = the label in lower case; `{branch}` =
-   lower case, `/` → `--`, every other character outside `a-z 0-9 -` → `-`; `{apexHost}` = the host of `apex`.
+3. Build the host with the CLI, never by hand:
+   `node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" host <project name or label> [<branch>]` prints it (branch default
+   `main`).
 4. Show it and wait for her confirmation ("Ich teste auf `<host>` — stimmt das?").
 5. Ask whether the branch has a live demo (the status comment may say so). With a live demo, login codes land in
    the demo's own mailbox: the run gets `--mailbox demo`, which the harness reads as `SDC_MAILBOX=demo`. Otherwise
@@ -70,12 +76,15 @@ test.describe('Konto A (frau)', () => {
     });
 
     await check('Weiter-Knopf bleibt im sichtbaren Bereich', async () => {
-      for (const r of await layout({
+      const rules = await layout({
         header: 'header',
         actionBar: '.bottom-bar',
         footer: '.bottom-bar',
-      }))
-        expect.soft(r.outcome, `${r.rule}: ${r.detail}`).not.toBe('nicht bestanden');
+      });
+      for (const id of ['R1', 'R3', 'R4']) {
+        const r = rules.find((x) => x.rule === id);
+        expect.soft(r?.outcome, `${id}: ${r?.detail ?? 'nicht gemessen'}`).toBe('bestanden');
+      }
     });
 
     await check('Abstände wie im Entwurf', async ({ zuPruefen }) => {
@@ -88,12 +97,9 @@ test.describe('Konto A (frau)', () => {
       'Weiter-Knopf über der Tastatur',
       async () => {
         await page.getByLabel('Ort').tap();
-        for (const r of await layout({
-          header: 'header',
-          actionBar: '.bottom-bar',
-          keyboard: true,
-        }))
-          expect.soft(r.outcome, `${r.rule}: ${r.detail}`).not.toBe('nicht bestanden');
+        const rules = await layout({ header: 'header', actionBar: '.bottom-bar', keyboard: true });
+        const r4 = rules.find((x) => x.rule === 'R4');
+        expect.soft(r4?.outcome, `R4: ${r4?.detail ?? 'nicht gemessen'}`).toBe('bestanden');
       },
       { keyboard: true },
     );
@@ -109,7 +115,11 @@ Rules for the spec:
 - **Each check is `check('<Prüfung>', body, opts?)`**, its title fixed text in the ticket's wording. No raw
   `test.step`: `run` refuses it, and it reads the planned check titles from the spec before the run, so a check that
   never ran (after a hard failure) still gets its row ("nicht bestanden — nicht gelaufen").
-- Assert only with `expect.soft`, so a failing check does not stop the following ones.
+- Assert only with `expect.soft`, so a failing check does not stop the following ones. Assert the **concrete
+  outcome** of the rules the check is about (`toBe('bestanden')` for each named rule), never just "not failed": a
+  rule that was not measured must not count as a pass.
+- `check()` fails closed on iOS: when `layout()` inside it measured nothing or returned "nicht prüfbar hier", the
+  check is "nicht prüfbar hier" there, even without `{ keyboard: true }`.
 - Navigate with `staging.goto(path)`; it refuses other hosts. Never set cookies yourself.
 - Map the status table: every `✅ da` row → a check; every `⚠️ abweichend` row → a check against the described
   deviation, not the original ticket text; `✖` rows → only listed as "nicht in diesem Ticket", no check.

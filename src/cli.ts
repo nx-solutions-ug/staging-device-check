@@ -30,6 +30,7 @@ import {
   workspaceDir,
   type Device,
   type Mailbox,
+  killActiveGroups,
   type RunDeps,
   validateTicket,
 } from './run.js';
@@ -43,6 +44,7 @@ export const COMMANDS = [
   'prepare',
   'run',
   'report',
+  'host',
 ] as const;
 
 export type CliDeps = RunDeps & {
@@ -52,7 +54,7 @@ export type CliDeps = RunDeps & {
   workspaceSource: string;
   nodeVersion: string;
   /** calls `stop` on Ctrl+C / SIGTERM while a run is going; returns the unregister function */
-  interrupts?: (stop: () => void) => () => void;
+  interrupts?: (stop: () => void, hard: () => void) => () => void;
 };
 
 const MIN_PASSWORD = 16;
@@ -67,7 +69,8 @@ const USAGE = `Befehle:
   local-state                        Gate-Sitzung für den lokalen Browser (Playwright MCP) anlegen
   prepare <TICKET> --host <host>     Run-Ordner anlegen
   run <ordner> [--devices iphone,android] [--confirm-minutes N] [--mailbox shared|demo]
-  report <ordner> <TICKET>           Stand-Abschnitt aus result.json erzeugen`;
+  report <ordner> <TICKET>           Stand-Abschnitt aus result.json erzeugen
+  host <projekt> [<branch>]          App-Host aus den Einstellungen bilden (Branch: main)`;
 
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(`--${name}`);
@@ -334,7 +337,16 @@ export async function main(argv: string[], d: CliDeps): Promise<number> {
         if (confirmMinutes !== undefined && !Number.isFinite(confirmMinutes))
           throw new UsageError('--confirm-minutes braucht eine Zahl.');
         const abort = new AbortController();
-        const release = d.interrupts?.(() => abort.abort()) ?? (() => {});
+        const release =
+          d.interrupts?.(
+            () => abort.abort(),
+            () => {
+              // second Ctrl+C: no cleanup pass any more, so the files that hold secrets go first
+              rmSync(join(dir, '.run-tokens'), { force: true });
+              rmSync(join(dir, '.browserstack.run.yml'), { force: true });
+              killActiveGroups();
+            },
+          ) ?? (() => {});
         try {
           return await runTests(
             dir,
@@ -349,6 +361,25 @@ export async function main(argv: string[], d: CliDeps): Promise<number> {
         } finally {
           release();
         }
+      }
+      case 'host': {
+        const [project, branch = 'main'] = args;
+        if (!project)
+          throw new UsageError('host braucht das Projekt (Name oder Label aus den Einstellungen).');
+        const config = loadConfig(d.env);
+        if (!config) throw new Error('Noch keine Einstellungen — bitte das Setup ausführen.');
+        const label =
+          config.projects[project] ?? Object.values(config.projects).find((l) => l === project);
+        if (!label)
+          throw new Error(
+            `Projekt „${project}“ steht nicht in den Einstellungen. Bekannt: ${Object.entries(
+              config.projects,
+            )
+              .map(([n, l]) => `${n} (${l})`)
+              .join(', ')}.`,
+          );
+        d.out(appHost(config, label, branch));
+        return 0;
       }
       case 'report': {
         const [dir, ticket] = args;
@@ -430,9 +461,22 @@ export function realDeps(): CliDeps {
     prompt: hiddenPrompt,
     workspaceSource: fileURLToPath(new URL('../workspace/', import.meta.url)),
     nodeVersion: process.versions.node,
-    interrupts: (stop) => {
-      // the first signal stops the SDK and lets the run folder be cleaned; Node's default exit would skip that
-      const on = () => stop();
+    interrupts: (stop, hard) => {
+      // the first signal stops the SDK group and lets the run folder be cleaned; Node's default exit would skip
+      // that. A second one exits at once, after removing the files that hold secrets.
+      let count = 0;
+      const on = () => {
+        count += 1;
+        if (count === 1) {
+          process.stderr.write(
+            '\nLauf wird abgebrochen und aufgeräumt … (noch einmal Strg+C: sofort beenden)\n',
+          );
+          stop();
+          return;
+        }
+        hard();
+        process.exit(130);
+      };
       process.on('SIGINT', on);
       process.on('SIGTERM', on);
       return () => {

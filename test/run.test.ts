@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { saveConfig } from '../src/config.js';
-import { cleanRunFolder, prepare, runTests, type RunDeps } from '../src/run.js';
+import { cleanRunFolder, prepare, realSpawn, runTests, type RunDeps } from '../src/run.js';
 import type { SecretDeps } from '../src/secret.js';
 import { sampleConfig } from './fixtures/config.js';
 
@@ -84,6 +84,9 @@ describe('prepare', () => {
     expect(config).toContain("trace: 'off'");
     // Android Chrome on BrowserStack refuses tap() without it (live check)
     expect(config).toContain('hasTouch: true');
+    // a code sign-in waits up to 61 s for its send slot plus the mail poll; Playwright's default is 30 s
+    expect(config).toContain('timeout: 360_000');
+    expect(config).toContain('expect: { timeout: 15_000 }');
     for (const link of ['node_modules', 'harness']) {
       expect(lstatSync(join(dir, link)).isSymbolicLink()).toBe(true);
       expect(readlinkSync(join(dir, link))).toBe(join(h.ws, link));
@@ -415,6 +418,68 @@ describe('runTests', () => {
     spec("  await check('Kopf da', async () => {});\n  await check('Preis', async () => {});");
     expect(await runTests(dir, {}, d)).toBe(0);
     expect(planAtStart).toEqual([{ title: 'Konto A (frau)', checks: ['Kopf da', 'Preis'] }]);
+  });
+
+  test('--devices iphone,iphone is one iPhone: the two-platform yml is not read in place', async () => {
+    const h = home();
+    let env: NodeJS.ProcessEnv = {};
+    let seen = '';
+    const { d, out } = deps(h.env, {
+      spawn: async (_c, _a, opts) => {
+        env = opts.env;
+        seen = readFileSync(opts.env.BROWSERSTACK_CONFIG_FILE as string, 'utf8');
+        return 0;
+      },
+    });
+    const dir = prepare('ACME-1', 'd-acme-de--main.dating.staging.example.test', d);
+    expect(await runTests(dir, { devices: ['iphone', 'iphone'] }, d)).toBe(0);
+    expect(env.BROWSERSTACK_CONFIG_FILE).toBe(join(dir, '.browserstack.run.yml'));
+    expect(seen).toContain('iPhone 16');
+    expect(seen).not.toContain('Samsung Galaxy S23');
+    expect(out.join('\n')).toContain('1 Gerät(e)');
+  });
+
+  test('browserstackLocalOptions secrets reach the redactor when her yml is read in place', async () => {
+    const h = home();
+    writeFileSync(
+      h.yml,
+      readFileSync(h.yml, 'utf8') +
+        'browserstackLocalOptions:\n  proxyPass: invented-proxy-pass-0002\n',
+      { mode: 0o600 },
+    );
+    const { d, out } = deps(h.env, {
+      spawn: async (_c, _a, opts, onStdout) => {
+        expect(opts.env.BROWSERSTACK_CONFIG_FILE).toBe(h.yml); // in place
+        onStdout('proxy invented-proxy-pass-0002 used\n');
+        writeFileSync(join(opts.cwd, 'sdk.txt'), 'pass invented-proxy-pass-0002');
+        return 0;
+      },
+    });
+    const dir = prepare('ACME-1', 'd-acme-de--main.dating.staging.example.test', d);
+    expect(await runTests(dir, {}, d)).toBe(0);
+    expect(out.join('\n')).not.toContain('invented-proxy-pass-0002');
+    expect(readFileSync(join(dir, 'sdk.txt'), 'utf8')).not.toContain('invented-proxy-pass-0002');
+  });
+
+  test('realSpawn stops the whole process group, grandchildren included', async () => {
+    const h = home();
+    const pidFile = join(h.root, 'grandchild.pid');
+    const stop = new AbortController();
+    const started = Date.now();
+    const done = realSpawn(
+      'sh',
+      ['-c', `sleep 60 & echo $! > ${pidFile}; echo up; wait`],
+      { cwd: h.root, env: { PATH: process.env.PATH }, signal: stop.signal },
+      (c) => {
+        if (c.includes('up')) stop.abort();
+      },
+      () => {},
+    );
+    await done;
+    expect(Date.now() - started).toBeLessThan(15_000);
+    const pid = Number(readFileSync(pidFile, 'utf8'));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(() => process.kill(pid, 0)).toThrow();
   });
 
   test('a stale yml copy is removed before anything else', async () => {

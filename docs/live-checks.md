@@ -129,6 +129,5 @@ run; the credentials only in the child env. **Minutes: 0.5** (API session sum 9.
 
 ## Still open
 
-- **The `report` note.** It shows the raw first error line, including ANSI colour codes. Notes should drop ANSI
-  escapes and long command echoes.
+- ~~**The `report` note.**~~ Fixed: notes drop ANSI codes.
 - **The abort live check** (SIGTERM mid-test) moved to Task 10. Cleanup on SIGINT/SIGTERM is unit-tested.
