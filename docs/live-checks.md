@@ -72,15 +72,41 @@ No run token existed, because staging was not used.
   the filter (the iOS shim), it falls back to `clearCookies()`; the test is over, so every cookie may go.
 - **`hasTouch: true`.** The generated `playwright.config.ts` sets it, so `tap` does not throw on Android.
 
-### Open: blocks Task 9 (iOS differs from the legacy probe)
+### Fixed after run 2: `evaluate` arguments on iOS
 
-- **`evaluate` arguments on iOS.** Through the SDK, the iOS shim drops the argument of `page.evaluate(fn, arg)`.
-  - The legacy wss route passed it, since the measurement ran there.
-  - `measure()` (`layout()`) and the page-end scroll in `layout()` both pass an argument, so `layout()` cannot work
-    on iOS as built.
-  - A likely fix is to bake the options into the function source (no parameters) before evaluating. That is not done
-    here; it needs a decision and one more live check.
-- **`tap` on Android.** It does not focus the input right after the tap (checked immediately, without waiting). The
-  legacy probe saw `tap` open the keyboard. A short wait for focus is the next thing to check.
-- **The `report` note.** It shows the raw first error line, including ANSI colour codes and the shim's evaluate
-  source. Notes should drop ANSI escapes and long command echoes.
+- **What run 2 showed.** Through the SDK, the iOS shim runs `page.evaluate(fn, arg)` as `fn()`, so the argument
+  never reaches the page. The legacy wss route passed it.
+- **The fix.** No harness call passes a second argument any more. `evaluateWith(page, fn, arg)` (`harness/evaluate.ts`)
+  writes the argument into the function source as a JSON constant; the page receives one parameterless function.
+  - `measure()` and the page-end scroll in `layout()` use it.
+  - The fixtures re-export it for generated specs.
+  - A unit test scans every harness file and fails on any `evaluate`, `evaluateHandle` or `waitForFunction` call
+    with a second argument.
+- **Android `tap`.** `hasTouch: true` stays in the config. The smoke spec now waits up to 3 s for the focus
+  (`waitForFunction` on `document.activeElement`) instead of checking at once.
+
+## 12.11.2026 — re-check after the fixes (run 3), same devices, same method
+
+**Minutes:** 0.8 (API session sum 8.6 → 9.4 min). The whole live check used ≈ 2.9 min.
+
+| Question                          | iPhone 16 / iOS 18                                            | Galaxy S23 / Android 13 |
+| --------------------------------- | ------------------------------------------------------------- | ----------------------- |
+| `layout()` / `measure()` run      | **yes**: all seven rules come back measured                   | yes                     |
+| Rules on the smoke page           | R1 **nicht bestanden**; start, R2, R3, R4, R5, R6 `bestanden` | all `bestanden`         |
+| Focus after `tap` (with the wait) | `name`                                                        | **`name`**              |
+| Viewport, `fill`, cookies, `shot` | as in run 2                                                   | as in run 2             |
+
+**Why R1 failed on iOS: the smoke page, not the harness.** This is an inference; the rule detail was not recorded in
+this run.
+
+- The page's hidden `100lvh` probe was `position: absolute`. It extends the document to 741 px against a 659 px
+  viewport: `maxScroll` 82 px against an 80 px bar is 2 px over the 1 px tolerance.
+- The same page on Android gives 705 − 649 = 56 px, under the bar, which passes.
+- The probe is now `position: fixed`, which never adds to the scroll height, and the spec records each rule's detail.
+- Confirming this needs one more short iOS run (≈ 0.5 min), which was not made within the 1-minute budget.
+
+## Still open
+
+- **The `report` note.** It shows the raw first error line, including ANSI colour codes. Notes should drop ANSI
+  escapes and long command echoes.
+- **The abort live check** (SIGTERM mid-test) moved to Task 10. Cleanup on SIGINT/SIGTERM is unit-tested.

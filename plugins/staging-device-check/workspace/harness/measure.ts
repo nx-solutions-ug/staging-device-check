@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import type { Metrics, Rect } from './rules.js';
+import { evaluateWith } from './evaluate.js';
 
 /** CSS selectors of the step's structure; only `header` is required. */
 export type LayoutOpts = {
@@ -40,7 +41,8 @@ export function pickActionButton(
 
 /**
  * One measurement in the page. A single `page.evaluate` with a FUNCTION OBJECT — BrowserStack's iOS shim calls a
- * string as a function and fails on an expression. The function is self-contained (it is serialized).
+ * string as a function and fails on an expression, and drops a second argument, so the options are baked in
+ * (evaluateWith). The function is self-contained (it is serialized).
  */
 /** The in-page body; `pick` is pickActionButton, injected by IN_PAGE. */
 const measureBody = ({ o }: { o: LayoutOpts }, pick: typeof pickActionButton): Metrics => {
@@ -176,5 +178,5 @@ const IN_PAGE = new Function(
 ) as (arg: { o: LayoutOpts }) => Metrics;
 
 export async function measure(page: Page, opts: LayoutOpts): Promise<Metrics> {
-  return page.evaluate(IN_PAGE, { o: opts });
+  return evaluateWith(page, IN_PAGE, { o: opts });
 }

@@ -12,7 +12,8 @@ const PAGE = `<!doctype html><html><head><meta name="viewport" content="width=de
 <style>
   body { margin: 0; font: 16px sans-serif; }
   #head { position: sticky; top: 0; height: 56px; background: #eee; }
-  #lvh { position: absolute; top: 0; left: 0; width: 1px; height: 100lvh; visibility: hidden; }
+  /* fixed, so the probe never adds to the scroll height (absolute made iOS scroll 741 − 659 = 82 px) */
+  #lvh { position: fixed; top: 0; left: 0; width: 1px; height: 100lvh; visibility: hidden; }
   main { padding: 16px 16px 96px; }
   #name { display: block; width: 100%; height: 48px; font-size: 16px; box-sizing: border-box; }
   #bar { position: fixed; left: 0; right: 0; bottom: 0; height: 80px; background: #ddd; display: flex; align-items: center; justify-content: center; }
@@ -77,6 +78,10 @@ test('sdk smoke', async ({ page, context, shot, layout }, testInfo) => {
 
   await test.step('tap and fill focus the input', async () => {
     await page.locator('#name').tap();
+    // the focus can land a moment after the tap (Android): wait briefly instead of checking at once
+    await page
+      .waitForFunction(() => document.activeElement?.id === 'name', undefined, { timeout: 3000 })
+      .catch(() => {});
     const afterTap = await page.evaluate(() => document.activeElement?.id ?? '');
     note('tap', `Fokus nach tap: ${afterTap || 'keiner'}`);
     expect.soft(afterTap).toBe('name');
@@ -104,7 +109,7 @@ test('sdk smoke', async ({ page, context, shot, layout }, testInfo) => {
       footer: '#bar',
       top: '#first',
     });
-    note('layout', results.map((r) => `${r.rule} ${r.outcome}`).join(', '));
+    note('layout', results.map((r) => `${r.rule} ${r.outcome} (${r.detail})`).join('; '));
     expect.soft(results.find((r) => r.rule === 'R1')?.outcome).toBe('bestanden');
   });
 });

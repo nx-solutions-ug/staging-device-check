@@ -16,12 +16,14 @@ import {
   mintRunToken,
   readGatePassword,
 } from './lib.js';
+import { evaluateWith } from './evaluate.js';
 import { measure, type LayoutOpts } from './measure.js';
 import { shotName } from './names.js';
 import { evaluateRules, type RuleResult } from './rules.js';
 import { NichtPruefbarHier, signIn, type Mailbox, type SignInSelectors } from './signin.js';
 import { withStaging, type Staging } from './staging.js';
 
+export { evaluateWith } from './evaluate.js';
 export { shotName, slug } from './names.js';
 
 const need = (name: string): string => {
@@ -167,7 +169,7 @@ export const test = base.extend<Options & Fixtures>({
             (r) => r.rule === 'R3',
           ),
         );
-        await page.evaluate((top) => window.scrollTo(0, top), y);
+        await evaluateWith(page, (top: number) => window.scrollTo(0, top), y);
       }
       return results;
     });
