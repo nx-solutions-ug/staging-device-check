@@ -1,18 +1,27 @@
 import { defineConfig } from 'tsup';
 
-export default defineConfig({
-  entry: {
-    cli: 'src/cli.ts',
-  },
-  outDir: 'plugins/staging-device-check/dist',
-  format: ['esm'],
+const common = {
+  format: ['esm' as const],
   target: 'node26',
-  platform: 'node',
+  platform: 'node' as const,
   dts: false,
   sourcemap: false,
-  clean: true,
   splitting: false,
-  banner: {
-    js: '#!/usr/bin/env node',
+};
+
+export default defineConfig([
+  {
+    ...common,
+    entry: { cli: 'src/cli.ts' },
+    outDir: 'plugins/staging-device-check/dist',
+    clean: true,
+    banner: { js: '#!/usr/bin/env node' },
   },
-});
+  {
+    // The harness folder holds hand-written sources too: never clean it.
+    ...common,
+    entry: { lib: 'src/harness-lib.ts' },
+    outDir: 'plugins/staging-device-check/workspace/harness',
+    clean: false,
+  },
+]);

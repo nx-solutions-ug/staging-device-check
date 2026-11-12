@@ -18,6 +18,8 @@
     "*.min.js",
     "*.bundle.js",
     "plugins/staging-device-check/dist/**",
-    "docs/superpowers/**"
+    "docs/superpowers/**",
+    "plugins/staging-device-check/workspace/harness/lib.js",
+    "plugins/staging-device-check/workspace/package-lock.json"
   ]
 }

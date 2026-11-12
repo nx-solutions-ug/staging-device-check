@@ -26,6 +26,8 @@
     "build/**",
     "out/**",
     ".worktrees/**",
-    "plugins/staging-device-check/dist/**"
+    "plugins/staging-device-check/dist/**",
+    "plugins/staging-device-check/workspace/harness/lib.js",
+    "plugins/staging-device-check/workspace/package-lock.json"
   ]
 }

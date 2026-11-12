@@ -18,9 +18,10 @@
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "type-check": "tsc --noEmit",
-    "check:dist": "bun run build && git diff --exit-code -- plugins/staging-device-check/dist"
+    "check:dist": "bun run build && git diff --exit-code -- plugins/staging-device-check/dist plugins/staging-device-check/workspace/harness/lib.js"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
     "@semantic-release/changelog": "^7.0.0",
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@semantic-release/exec": "^7.1.0",
