@@ -16,7 +16,7 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { parseDocument } from 'yaml';
+import { isMap, isSeq, parseDocument, YAMLSeq } from 'yaml';
 import { checkYml, usedMinutes } from './bsyml.js';
 import { loadConfig } from './config.js';
 import { stateDir } from './paths.js';
@@ -110,22 +110,40 @@ function narrowedYml(
   devices: Device[],
   buildName: string,
 ): { text: string; chosen: string[] } {
-  const doc = parseDocument(readFileSync(source, 'utf8'));
-  const platforms = (doc.toJS().platforms ?? []) as Array<Record<string, unknown>>;
-  const chosen: Array<Record<string, unknown>> = [];
+  // failsafe: every scalar stays the string it was written as (osVersion 13.10 stays 13.10); the platform nodes are
+  // filtered, never rebuilt from plain values.
+  const doc = parseDocument(readFileSync(source, 'utf8'), { schema: 'failsafe' });
+  const platforms = doc.get('platforms', true);
+  const items = isSeq(platforms) ? platforms.items.filter(isMap) : [];
+  const chosen = new YAMLSeq();
+  const names: string[] = [];
   for (const want of devices) {
-    const p = platforms.find(
-      (x) => typeof x.deviceName === 'string' && isIos(x.deviceName) === (want === 'iphone'),
-    );
+    const p = items.find((x) => {
+      const name = x.get('deviceName');
+      return typeof name === 'string' && isIos(name) === (want === 'iphone');
+    });
     if (!p)
       throw new Error(
         `In der browserstack.yml gibt es kein ${want === 'iphone' ? 'iPhone' : 'Android-Gerät'}.`,
       );
-    chosen.push(p);
+    chosen.items.push(p);
+    names.push(String(p.get('deviceName')));
   }
   doc.set('platforms', chosen);
   doc.set('buildName', buildName);
-  return { text: doc.toString(), chosen: chosen.map((p) => String(p.deviceName)) };
+  // No copy ever carries credentials: the SDK gets them through the child's env.
+  doc.delete('userName');
+  doc.delete('accessKey');
+  return { text: doc.toString(), chosen: names };
+}
+
+/** Device (or browser) names of every platform in her yml, for the estimate and run.json. */
+function platformNames(source: string): string[] {
+  const doc = parseDocument(readFileSync(source, 'utf8'), { schema: 'failsafe' });
+  const platforms = doc.get('platforms', true);
+  return (isSeq(platforms) ? platforms.items.filter(isMap) : []).map((p) =>
+    String(p.get('deviceName') ?? p.get('browserName') ?? '?'),
+  );
 }
 
 /** Line-buffered redaction for a child's output stream. */
@@ -184,6 +202,8 @@ const NOT_STARTED = /UmgebungNichtGestartet|Umgebung nicht gestartet/;
 const minutesText = (m: number) => `${Math.round(m * 10) / 10}`.replace('.', ',');
 
 export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promise<number> {
+  // a copy left by a crashed run goes first, whatever happens next
+  rmSync(join(dir, RUN_YML), { force: true });
   const meta = readMeta(dir);
   validateTicket(meta.ticket);
   const config = loadConfig(d.env);
@@ -203,22 +223,32 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
   const secrets = [...yml.secretsForRedaction, ...(gate ? [gate] : [])];
   const redact = redactor(secrets);
 
-  const devices = opts.devices?.length ? opts.devices : (['iphone', 'android'] as Device[]);
+  // Without --devices the SDK runs every platform of her own yml, read in place.
+  const narrow = opts.devices?.length ? opts.devices : null;
+  const deviceCount = narrow ? narrow.length : platformNames(config.browserstackYml).length;
   const tests = await d.listTests(dir);
   if (!Number.isFinite(tests) || tests < 1) {
     d.err('Keine Tests im Run-Ordner gefunden — zuerst eine *.spec.ts anlegen.');
     return 1;
   }
-  const estimate = tests * devices.length * MINUTES_PER_TEST;
+  const estimate = tests * deviceCount * MINUTES_PER_TEST;
   const used = await usedMinutes(user, key, d.fetchFn);
   const remaining = used === null ? null : config.planMinutes - used;
   d.out(
-    `Geschätzt: ${tests} Test(s) × ${devices.length} Gerät(e) × ${minutesText(MINUTES_PER_TEST)} Min ≈ ${minutesText(estimate)} Min; ` +
+    `Geschätzt: ${tests} Test(s) × ${deviceCount} Gerät(e) × ${minutesText(MINUTES_PER_TEST)} Min ≈ ${minutesText(estimate)} Min; ` +
       (remaining === null
         ? 'Restminuten unbekannt.'
         : `übrig ≈ ${minutesText(remaining)} von ${config.planMinutes} Min (geschätzt).`),
   );
-  if (estimate > config.perRunMinutes && !((opts.confirmMinutes ?? 0) >= estimate)) {
+  const confirmed = (opts.confirmMinutes ?? 0) >= estimate;
+  if (remaining === null && !confirmed) {
+    d.err(
+      `Die Restminuten bei BrowserStack sind nicht abrufbar; geschätzt braucht der Lauf ${minutesText(estimate)} Min. ` +
+        `Zum Bestätigen mit --confirm-minutes ${Math.ceil(estimate)} erneut starten.`,
+    );
+    return 1;
+  }
+  if (estimate > config.perRunMinutes && !confirmed) {
     d.err(
       `Der Lauf braucht geschätzt ${minutesText(estimate)} Min, mehr als die ${config.perRunMinutes} Min pro Lauf. ` +
         `Zum Bestätigen mit --confirm-minutes ${Math.ceil(estimate)} erneut starten.`,
@@ -242,8 +272,18 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
   const ymlCopy = join(dir, RUN_YML);
   let code = 1;
   try {
-    const { text, chosen } = narrowedYml(config.browserstackYml, devices, buildName);
-    writeFileSync(ymlCopy, text, { mode: 0o600 });
+    let configFile = config.browserstackYml;
+    let chosen = platformNames(config.browserstackYml);
+    const credentials: Record<string, string> = {};
+    if (narrow) {
+      const n = narrowedYml(config.browserstackYml, narrow, buildName);
+      writeFileSync(ymlCopy, n.text, { mode: 0o600 });
+      configFile = ymlCopy;
+      chosen = n.chosen;
+      // the copy holds no credentials; the SDK reads its documented env variables, read here from her yml
+      credentials.BROWSERSTACK_USERNAME = user;
+      credentials.BROWSERSTACK_ACCESS_KEY = key;
+    }
     writeFileSync(
       join(dir, 'run.json'),
       `${JSON.stringify({ ...meta, devices: chosen }, null, 2)}\n`,
@@ -264,8 +304,10 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
         cwd: dir,
         env: {
           ...d.env,
-          // the SDK's documented config-file variable; credentials stay inside the mode-600 copy
-          BROWSERSTACK_CONFIG_FILE: ymlCopy,
+          ...credentials,
+          // the SDK's documented config-file and build-name variables
+          BROWSERSTACK_CONFIG_FILE: configFile,
+          BROWSERSTACK_BUILD_NAME: buildName,
           SDC_HOST: meta.host,
           SDC_RUN_DIR: dir,
           SDC_TICKET: meta.ticket,

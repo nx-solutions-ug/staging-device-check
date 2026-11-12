@@ -32,6 +32,34 @@ describe('parseResult', () => {
   });
 });
 
+describe('parseResult skips', () => {
+  test('a skip without the annotation is a failure, noted as skipped without reason', () => {
+    const report = {
+      suites: [
+        {
+          title: 'a.spec.ts',
+          specs: [
+            {
+              title: 'ohne Grund übersprungen',
+              tests: [
+                {
+                  projectName: 'Samsung Galaxy S23',
+                  annotations: [],
+                  results: [{ status: 'skipped' }],
+                  status: 'skipped',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const [c] = parseResult(report as never, []).checks;
+    expect(c.outcome).toBe('nicht bestanden');
+    expect(c.note).toBe('übersprungen ohne Grund');
+  });
+});
+
 describe('renderStand', () => {
   test('renderStand golden output', () => {
     const r = parseResult(JSON.parse(fixture('result.json')), SHOTS);

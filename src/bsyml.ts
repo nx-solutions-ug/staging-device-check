@@ -162,31 +162,6 @@ export function checkYml(path: string, env: NodeJS.ProcessEnv = process.env): Ym
 }
 
 /**
- * Remaining BrowserStack Automate minutes, when the API says so. The documented plan endpoint
- * (`GET https://api.browserstack.com/automate/plan.json`) returns only the plan name and parallel/queued session
- * counts — no minutes — so this returns null for that answer instead of guessing. Errors are null too.
- */
-export async function remainingMinutes(
-  user: string,
-  key: string,
-  fetchFn: typeof fetch = fetch,
-): Promise<number | null> {
-  try {
-    const r = await fetchFn('https://api.browserstack.com/automate/plan.json', {
-      headers: {
-        authorization: `Basic ${Buffer.from(`${user}:${key}`).toString('base64')}`,
-        accept: 'application/json',
-      },
-    });
-    if (!r.ok) return null;
-    await r.json();
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Minutes used on the BrowserStack account, summed from the session durations (seconds) of every build:
  * `GET /automate/builds.json` and `GET /automate/builds/<hashed_id>/sessions.json`, both paged with `limit` (max 100)
  * and `offset`. The plan API reports no minutes, so `planMinutes − usedMinutes` is an estimate ("geschätzt"):

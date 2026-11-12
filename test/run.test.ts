@@ -159,7 +159,7 @@ describe('runTests', () => {
     expect(err.join('\n')).toContain('abgebrochen');
   });
 
-  test('runs the SDK with the run context in env, credentials neither in argv nor env', async () => {
+  test('runs the SDK with the run context in env, credentials not in argv', async () => {
     const h = home();
     const { d, spawned, out } = deps(h.env);
     const dir = prepare('ACME-1', 'd-acme-de--main.dating.staging.example.test', d);
@@ -175,9 +175,8 @@ describe('runTests', () => {
       SDC_MAILBOX: 'demo',
       BROWSERSTACK_CONFIG_FILE: join(dir, '.browserstack.run.yml'),
     });
-    const flat = JSON.stringify(s);
-    expect(flat).not.toContain(FAKE_KEY);
-    expect(flat).not.toContain(GATE_PW);
+    expect(JSON.stringify(s.args)).not.toContain(FAKE_KEY);
+    expect(JSON.stringify(s)).not.toContain(GATE_PW);
     // the yml copy is gone after the run
     expect(existsSync(join(dir, '.browserstack.run.yml'))).toBe(false);
     expect(out.join('\n')).toMatch(/geschätzt/);
@@ -201,6 +200,106 @@ describe('runTests', () => {
     expect(seen).toContain('Samsung Galaxy S23');
     expect(seen).not.toContain('iPhone 16');
     expect(seen).toContain('buildName: ACME-1 2026-11-12');
+  });
+
+  test('the narrowed copy carries no credentials; the child env does', async () => {
+    const h = home();
+    let seen = '';
+    let env: NodeJS.ProcessEnv = {};
+    const { d } = deps(h.env, {
+      spawn: async (_c, _a, opts) => {
+        seen = readFileSync(opts.env.BROWSERSTACK_CONFIG_FILE as string, 'utf8');
+        env = opts.env;
+        return 0;
+      },
+    });
+    const dir = prepare('ACME-1', 'd-acme-de--main.dating.staging.example.test', d);
+    expect(await runTests(dir, { devices: ['iphone'] }, d)).toBe(0);
+    expect(seen).not.toContain(FAKE_USER);
+    expect(seen).not.toContain(FAKE_KEY);
+    expect(seen).not.toMatch(/userName|accessKey/);
+    expect(env.BROWSERSTACK_USERNAME).toBe(FAKE_USER);
+    expect(env.BROWSERSTACK_ACCESS_KEY).toBe(FAKE_KEY);
+  });
+
+  test('without --devices the SDK reads her own yml and no copy is written', async () => {
+    const h = home();
+    let env: NodeJS.ProcessEnv = {};
+    let copyDuringRun = true;
+    const { d } = deps(h.env, {
+      spawn: async (_c, _a, opts) => {
+        env = opts.env;
+        copyDuringRun = existsSync(join(opts.cwd, '.browserstack.run.yml'));
+        return 0;
+      },
+    });
+    const dir = prepare('ACME-1', 'd-acme-de--main.dating.staging.example.test', d);
+    expect(await runTests(dir, {}, d)).toBe(0);
+    expect(env.BROWSERSTACK_CONFIG_FILE).toBe(h.yml);
+    expect(env.BROWSERSTACK_BUILD_NAME).toBe('ACME-1 2026-11-12');
+    expect(env.BROWSERSTACK_USERNAME).toBeUndefined();
+    expect(env.BROWSERSTACK_ACCESS_KEY).toBeUndefined();
+    expect(copyDuringRun).toBe(false);
+  });
+
+  test('narrowing keeps scalars as written (osVersion 13.10 and 13.0)', async () => {
+    const h = home();
+    writeFileSync(
+      h.yml,
+      [
+        `userName: ${FAKE_USER}`,
+        `accessKey: ${FAKE_KEY}`,
+        'framework: playwright',
+        'platforms:',
+        '  - deviceName: iPhone 16',
+        '    osVersion: 18.0',
+        '    browserName: safari',
+        '  - deviceName: Samsung Galaxy S23',
+        '    osVersion: 13.10',
+        '    browserName: chrome',
+        '  - deviceName: Google Pixel 8',
+        '    osVersion: 13.0',
+        '    browserName: chrome',
+        '',
+      ].join('\n'),
+      { mode: 0o600 },
+    );
+    let seen = '';
+    const { d } = deps(h.env, {
+      spawn: async (_c, _a, opts) => {
+        seen = readFileSync(opts.env.BROWSERSTACK_CONFIG_FILE as string, 'utf8');
+        return 0;
+      },
+    });
+    const dir = prepare('ACME-1', 'd-acme-de--main.dating.staging.example.test', d);
+    expect(await runTests(dir, { devices: ['iphone', 'android'] }, d)).toBe(0);
+    expect(seen).toContain('osVersion: 18.0');
+    expect(seen).toContain('osVersion: 13.10');
+    expect(seen).not.toContain('Google Pixel 8');
+  });
+
+  test('a stale yml copy is removed before anything else', async () => {
+    const h = home();
+    const { d } = deps(h.env, { listTests: async () => 0 });
+    const dir = prepare('ACME-1', 'd-acme-de--main.dating.staging.example.test', d);
+    writeFileSync(join(dir, '.browserstack.run.yml'), `accessKey: ${FAKE_KEY}\n`, { mode: 0o600 });
+    expect(await runTests(dir, {}, d)).toBe(1);
+    expect(existsSync(join(dir, '.browserstack.run.yml'))).toBe(false);
+  });
+
+  test('unknown remaining minutes require --confirm-minutes', async () => {
+    const h = home();
+    const { d, err, spawned } = deps(h.env, {
+      fetchFn: (async () => {
+        throw new Error('offline');
+      }) as unknown as typeof fetch,
+    });
+    const dir = prepare('ACME-1', 'd-acme-de--main.dating.staging.example.test', d);
+    expect(await runTests(dir, {}, d)).toBe(1); // 2 tests x 2 devices x 1.5 = 6, within perRunMinutes
+    expect(spawned).toEqual([]);
+    expect(err.join('\n')).toContain('--confirm-minutes 6');
+    expect(await runTests(dir, { confirmMinutes: 6 }, d)).toBe(0);
+    expect(spawned).toHaveLength(1);
   });
 
   test('cleans SDK logs and redacts the run folder', async () => {

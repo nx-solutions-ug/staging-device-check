@@ -52,7 +52,10 @@ function outcomeOf(t: PwTest): { outcome: Outcome; note: string } {
   const status = last.status ?? 'skipped';
   if (status === 'skipped') {
     const a = find(NICHT_PRUEFBAR);
-    return { outcome: 'nicht prüfbar hier', note: a?.description ?? 'übersprungen' };
+    // only a skip that says why counts as "nicht prüfbar hier"; any other skip hides a check and is a failure
+    return a
+      ? { outcome: 'nicht prüfbar hier', note: a.description ?? '' }
+      : { outcome: 'nicht bestanden', note: 'übersprungen ohne Grund' };
   }
   if (status === 'passed') {
     const a = find(ZU_PRUEFEN);

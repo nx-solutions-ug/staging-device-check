@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { chmodSync, cpSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkYml, remainingMinutes, usedMinutes } from '../src/bsyml.js';
+import { checkYml, usedMinutes } from '../src/bsyml.js';
 
 const FAKE_USER = 'fake-user-0001';
 const FAKE_KEY = 'fakeAccessKey000000000';
@@ -98,41 +98,6 @@ describe('checkYml', () => {
       expect(secretsForRedaction).toContain(FAKE_KEY);
       expect(secretsForRedaction).toContain(`${FAKE_USER}:${FAKE_KEY}`);
     }
-  });
-});
-
-describe('remainingMinutes', () => {
-  const plan = {
-    automate_plan: 'Free',
-    parallel_sessions_running: 0,
-    team_parallel_sessions_max_allowed: 5,
-    parallel_sessions_max_allowed: 5,
-    queued_sessions: 0,
-    queued_sessions_max_allowed: 5,
-  };
-
-  test('remainingMinutes parses the plan answer (mock)', async () => {
-    const calls: Array<{ url: string; init: RequestInit }> = [];
-    const fetchFn = (async (url: string | URL | Request, init: RequestInit = {}) => {
-      calls.push({ url: String(url), init });
-      return new Response(JSON.stringify(plan), { status: 200 });
-    }) as typeof fetch;
-    // The documented plan answer carries no minutes field: null, not a guess.
-    expect(await remainingMinutes(FAKE_USER, FAKE_KEY, fetchFn)).toBeNull();
-    expect(calls[0].url).toBe('https://api.browserstack.com/automate/plan.json');
-    expect(calls[0].url).not.toContain(FAKE_KEY);
-    const auth = new Headers(calls[0].init.headers).get('authorization');
-    expect(auth).toBe(`Basic ${Buffer.from(`${FAKE_USER}:${FAKE_KEY}`).toString('base64')}`);
-  });
-
-  test('an error or a network failure is null', async () => {
-    const r401 = (async () =>
-      new Response('Unauthorized', { status: 401 })) as unknown as typeof fetch;
-    const down = (async () => {
-      throw new TypeError('fetch failed');
-    }) as unknown as typeof fetch;
-    expect(await remainingMinutes(FAKE_USER, FAKE_KEY, r401)).toBeNull();
-    expect(await remainingMinutes(FAKE_USER, FAKE_KEY, down)).toBeNull();
   });
 });
 

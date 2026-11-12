@@ -49,10 +49,10 @@ var require_identity = __commonJS({
     var NODE_TYPE = /* @__PURE__ */ Symbol.for("yaml.node.type");
     var isAlias = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === ALIAS;
     var isDocument = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === DOC;
-    var isMap = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === MAP;
+    var isMap2 = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === MAP;
     var isPair = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === PAIR;
     var isScalar = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === SCALAR;
-    var isSeq = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === SEQ;
+    var isSeq2 = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === SEQ;
     function isCollection(node) {
       if (node && typeof node === "object")
         switch (node[NODE_TYPE]) {
@@ -85,11 +85,11 @@ var require_identity = __commonJS({
     exports.isAlias = isAlias;
     exports.isCollection = isCollection;
     exports.isDocument = isDocument;
-    exports.isMap = isMap;
+    exports.isMap = isMap2;
     exports.isNode = isNode;
     exports.isPair = isPair;
     exports.isScalar = isScalar;
-    exports.isSeq = isSeq;
+    exports.isSeq = isSeq2;
   }
 });
 
@@ -2185,7 +2185,7 @@ var require_YAMLSeq = __commonJS({
     var identity = require_identity();
     var Scalar = require_Scalar();
     var toJS = require_toJS();
-    var YAMLSeq = class extends Collection.Collection {
+    var YAMLSeq2 = class extends Collection.Collection {
       static get tagName() {
         return "tag:yaml.org,2002:seq";
       }
@@ -2287,7 +2287,7 @@ var require_YAMLSeq = __commonJS({
         idx = Number(idx);
       return typeof idx === "number" && Number.isInteger(idx) && idx >= 0 ? idx : null;
     }
-    exports.YAMLSeq = YAMLSeq;
+    exports.YAMLSeq = YAMLSeq2;
   }
 });
 
@@ -2296,18 +2296,18 @@ var require_seq = __commonJS({
   "node_modules/yaml/dist/schema/common/seq.js"(exports) {
     "use strict";
     var identity = require_identity();
-    var YAMLSeq = require_YAMLSeq();
+    var YAMLSeq2 = require_YAMLSeq();
     var seq = {
       collection: "seq",
       default: true,
-      nodeClass: YAMLSeq.YAMLSeq,
+      nodeClass: YAMLSeq2.YAMLSeq,
       tag: "tag:yaml.org,2002:seq",
       resolve(seq2, onError) {
         if (!identity.isSeq(seq2))
           onError("Expected a sequence for this tag");
         return seq2;
       },
-      createNode: (schema, obj, ctx) => YAMLSeq.YAMLSeq.from(schema, obj, ctx)
+      createNode: (schema, obj, ctx) => YAMLSeq2.YAMLSeq.from(schema, obj, ctx)
     };
     exports.seq = seq;
   }
@@ -2660,7 +2660,7 @@ var require_pairs = __commonJS({
     var identity = require_identity();
     var Pair = require_Pair();
     var Scalar = require_Scalar();
-    var YAMLSeq = require_YAMLSeq();
+    var YAMLSeq2 = require_YAMLSeq();
     function resolvePairs(seq, onError) {
       if (identity.isSeq(seq)) {
         for (let i = 0; i < seq.items.length; ++i) {
@@ -2689,7 +2689,7 @@ ${cn.comment}` : item.comment;
     }
     function createPairs(schema, iterable, ctx) {
       const { replacer } = ctx;
-      const pairs2 = new YAMLSeq.YAMLSeq(schema);
+      const pairs2 = new YAMLSeq2.YAMLSeq(schema);
       pairs2.tag = "tag:yaml.org,2002:pairs";
       let i = 0;
       if (iterable && Symbol.iterator in Object(iterable))
@@ -2738,9 +2738,9 @@ var require_omap = __commonJS({
     var identity = require_identity();
     var toJS = require_toJS();
     var YAMLMap = require_YAMLMap();
-    var YAMLSeq = require_YAMLSeq();
+    var YAMLSeq2 = require_YAMLSeq();
     var pairs = require_pairs();
-    var YAMLOMap = class _YAMLOMap extends YAMLSeq.YAMLSeq {
+    var YAMLOMap = class _YAMLOMap extends YAMLSeq2.YAMLSeq {
       constructor() {
         super();
         this.add = YAMLMap.YAMLMap.prototype.add.bind(this);
@@ -4092,11 +4092,11 @@ var require_resolve_block_map = __commonJS({
 var require_resolve_block_seq = __commonJS({
   "node_modules/yaml/dist/compose/resolve-block-seq.js"(exports) {
     "use strict";
-    var YAMLSeq = require_YAMLSeq();
+    var YAMLSeq2 = require_YAMLSeq();
     var resolveProps = require_resolve_props();
     var utilFlowIndentCheck = require_util_flow_indent_check();
     function resolveBlockSeq({ composeNode, composeEmptyNode }, ctx, bs, onError, tag) {
-      const NodeClass = tag?.nodeClass ?? YAMLSeq.YAMLSeq;
+      const NodeClass = tag?.nodeClass ?? YAMLSeq2.YAMLSeq;
       const seq = new NodeClass(ctx.schema);
       if (ctx.atRoot)
         ctx.atRoot = false;
@@ -4189,7 +4189,7 @@ var require_resolve_flow_collection = __commonJS({
     var identity = require_identity();
     var Pair = require_Pair();
     var YAMLMap = require_YAMLMap();
-    var YAMLSeq = require_YAMLSeq();
+    var YAMLSeq2 = require_YAMLSeq();
     var resolveEnd = require_resolve_end();
     var resolveProps = require_resolve_props();
     var utilContainsNewline = require_util_contains_newline();
@@ -4197,9 +4197,9 @@ var require_resolve_flow_collection = __commonJS({
     var blockMsg = "Block collections are not allowed within flow collections";
     var isBlock = (token) => token && (token.type === "block-map" || token.type === "block-seq");
     function resolveFlowCollection({ composeNode, composeEmptyNode }, ctx, fc, onError, tag) {
-      const isMap = fc.start.source === "{";
-      const fcName = isMap ? "flow map" : "flow sequence";
-      const NodeClass = tag?.nodeClass ?? (isMap ? YAMLMap.YAMLMap : YAMLSeq.YAMLSeq);
+      const isMap2 = fc.start.source === "{";
+      const fcName = isMap2 ? "flow map" : "flow sequence";
+      const NodeClass = tag?.nodeClass ?? (isMap2 ? YAMLMap.YAMLMap : YAMLSeq2.YAMLSeq);
       const coll = new NodeClass(ctx.schema);
       coll.flow = true;
       const atRoot = ctx.atRoot;
@@ -4235,7 +4235,7 @@ var require_resolve_flow_collection = __commonJS({
             offset = props.end;
             continue;
           }
-          if (!isMap && ctx.options.strict && utilContainsNewline.containsNewline(key))
+          if (!isMap2 && ctx.options.strict && utilContainsNewline.containsNewline(key))
             onError(
               key,
               // checked by containsNewline()
@@ -4275,7 +4275,7 @@ var require_resolve_flow_collection = __commonJS({
             }
           }
         }
-        if (!isMap && !sep && !props.found) {
+        if (!isMap2 && !sep && !props.found) {
           const valueNode = value ? composeNode(ctx, value, props, onError) : composeEmptyNode(ctx, props.end, sep, null, props, onError);
           coll.items.push(valueNode);
           offset = valueNode.range[2];
@@ -4298,7 +4298,7 @@ var require_resolve_flow_collection = __commonJS({
             startOnNewline: false
           });
           if (valueProps.found) {
-            if (!isMap && !props.found && ctx.options.strict) {
+            if (!isMap2 && !props.found && ctx.options.strict) {
               if (sep)
                 for (const st of sep) {
                   if (st === valueProps.found)
@@ -4330,7 +4330,7 @@ var require_resolve_flow_collection = __commonJS({
           const pair = new Pair.Pair(keyNode, valueNode);
           if (ctx.options.keepSourceTokens)
             pair.srcToken = collItem;
-          if (isMap) {
+          if (isMap2) {
             const map = coll;
             if (utilMapIncludes.mapIncludes(ctx, map.items, keyNode))
               onError(keyStart, "DUPLICATE_KEY", "Map keys must be unique");
@@ -4346,7 +4346,7 @@ var require_resolve_flow_collection = __commonJS({
           offset = valueNode ? valueNode.range[2] : valueProps.end;
         }
       }
-      const expectedEnd = isMap ? "}" : "]";
+      const expectedEnd = isMap2 ? "}" : "]";
       const [ce, ...ee] = fc.end;
       let cePos = offset;
       if (ce?.source === expectedEnd)
@@ -4383,7 +4383,7 @@ var require_compose_collection = __commonJS({
     var identity = require_identity();
     var Scalar = require_Scalar();
     var YAMLMap = require_YAMLMap();
-    var YAMLSeq = require_YAMLSeq();
+    var YAMLSeq2 = require_YAMLSeq();
     var resolveBlockMap = require_resolve_block_map();
     var resolveBlockSeq = require_resolve_block_seq();
     var resolveFlowCollection = require_resolve_flow_collection();
@@ -4410,7 +4410,7 @@ var require_compose_collection = __commonJS({
         }
       }
       const expType = token.type === "block-map" ? "map" : token.type === "block-seq" ? "seq" : token.start.source === "{" ? "map" : "seq";
-      if (!tagToken || !tagName || tagName === "!" || tagName === YAMLMap.YAMLMap.tagName && expType === "map" || tagName === YAMLSeq.YAMLSeq.tagName && expType === "seq") {
+      if (!tagToken || !tagName || tagName === "!" || tagName === YAMLMap.YAMLMap.tagName && expType === "map" || tagName === YAMLSeq2.YAMLSeq.tagName && expType === "seq") {
         return resolveCollection(CN, ctx, token, onError, tagName);
       }
       let tag = ctx.schema.tags.find((t) => t.tag === tagName && t.collection === expType);
@@ -7327,7 +7327,7 @@ var require_dist = __commonJS({
     var Pair = require_Pair();
     var Scalar = require_Scalar();
     var YAMLMap = require_YAMLMap();
-    var YAMLSeq = require_YAMLSeq();
+    var YAMLSeq2 = require_YAMLSeq();
     var cst = require_cst();
     var lexer = require_lexer();
     var lineCounter = require_line_counter();
@@ -7352,7 +7352,7 @@ var require_dist = __commonJS({
     exports.Pair = Pair.Pair;
     exports.Scalar = Scalar.Scalar;
     exports.YAMLMap = YAMLMap.YAMLMap;
-    exports.YAMLSeq = YAMLSeq.YAMLSeq;
+    exports.YAMLSeq = YAMLSeq2.YAMLSeq;
     exports.CST = cst;
     exports.Lexer = lexer.Lexer;
     exports.LineCounter = lineCounter.LineCounter;
@@ -7809,7 +7809,7 @@ function outcomeOf(t) {
   const status = last.status ?? "skipped";
   if (status === "skipped") {
     const a = find(NICHT_PRUEFBAR);
-    return { outcome: "nicht pr\xFCfbar hier", note: a?.description ?? "\xFCbersprungen" };
+    return a ? { outcome: "nicht pr\xFCfbar hier", note: a.description ?? "" } : { outcome: "nicht bestanden", note: "\xFCbersprungen ohne Grund" };
   }
   if (status === "passed") {
     const a = find(ZU_PRUEFEN);
@@ -8036,22 +8036,35 @@ function prepare(ticket, host, d) {
 var readMeta = (dir) => JSON.parse(readFileSync4(join5(dir, "run.json"), "utf8"));
 var isIos2 = (deviceName) => /^(iphone|ipad)/i.test(deviceName);
 function narrowedYml(source, devices, buildName) {
-  const doc = (0, import_yaml2.parseDocument)(readFileSync4(source, "utf8"));
-  const platforms = doc.toJS().platforms ?? [];
-  const chosen = [];
+  const doc = (0, import_yaml2.parseDocument)(readFileSync4(source, "utf8"), { schema: "failsafe" });
+  const platforms = doc.get("platforms", true);
+  const items = (0, import_yaml2.isSeq)(platforms) ? platforms.items.filter(import_yaml2.isMap) : [];
+  const chosen = new import_yaml2.YAMLSeq();
+  const names = [];
   for (const want of devices) {
-    const p = platforms.find(
-      (x) => typeof x.deviceName === "string" && isIos2(x.deviceName) === (want === "iphone")
-    );
+    const p = items.find((x) => {
+      const name = x.get("deviceName");
+      return typeof name === "string" && isIos2(name) === (want === "iphone");
+    });
     if (!p)
       throw new Error(
         `In der browserstack.yml gibt es kein ${want === "iphone" ? "iPhone" : "Android-Ger\xE4t"}.`
       );
-    chosen.push(p);
+    chosen.items.push(p);
+    names.push(String(p.get("deviceName")));
   }
   doc.set("platforms", chosen);
   doc.set("buildName", buildName);
-  return { text: doc.toString(), chosen: chosen.map((p) => String(p.deviceName)) };
+  doc.delete("userName");
+  doc.delete("accessKey");
+  return { text: doc.toString(), chosen: names };
+}
+function platformNames(source) {
+  const doc = (0, import_yaml2.parseDocument)(readFileSync4(source, "utf8"), { schema: "failsafe" });
+  const platforms = doc.get("platforms", true);
+  return ((0, import_yaml2.isSeq)(platforms) ? platforms.items.filter(import_yaml2.isMap) : []).map(
+    (p) => String(p.get("deviceName") ?? p.get("browserName") ?? "?")
+  );
 }
 function redactingStream(write, redact) {
   let buf = "";
@@ -8095,6 +8108,7 @@ function cleanRunFolder(dir, secrets) {
 var NOT_STARTED = /UmgebungNichtGestartet|Umgebung nicht gestartet/;
 var minutesText = (m) => `${Math.round(m * 10) / 10}`.replace(".", ",");
 async function runTests(dir, opts, d) {
+  rmSync3(join5(dir, RUN_YML), { force: true });
   const meta = readMeta(dir);
   validateTicket(meta.ticket);
   const config = loadConfig(d.env);
@@ -8113,19 +8127,27 @@ async function runTests(dir, opts, d) {
   const gate = readGatePassword(d.secret);
   const secrets = [...yml.secretsForRedaction, ...gate ? [gate] : []];
   const redact = redactor(secrets);
-  const devices = opts.devices?.length ? opts.devices : ["iphone", "android"];
+  const narrow = opts.devices?.length ? opts.devices : null;
+  const deviceCount = narrow ? narrow.length : platformNames(config.browserstackYml).length;
   const tests = await d.listTests(dir);
   if (!Number.isFinite(tests) || tests < 1) {
     d.err("Keine Tests im Run-Ordner gefunden \u2014 zuerst eine *.spec.ts anlegen.");
     return 1;
   }
-  const estimate = tests * devices.length * MINUTES_PER_TEST;
+  const estimate = tests * deviceCount * MINUTES_PER_TEST;
   const used = await usedMinutes(user, key, d.fetchFn);
   const remaining = used === null ? null : config.planMinutes - used;
   d.out(
-    `Gesch\xE4tzt: ${tests} Test(s) \xD7 ${devices.length} Ger\xE4t(e) \xD7 ${minutesText(MINUTES_PER_TEST)} Min \u2248 ${minutesText(estimate)} Min; ` + (remaining === null ? "Restminuten unbekannt." : `\xFCbrig \u2248 ${minutesText(remaining)} von ${config.planMinutes} Min (gesch\xE4tzt).`)
+    `Gesch\xE4tzt: ${tests} Test(s) \xD7 ${deviceCount} Ger\xE4t(e) \xD7 ${minutesText(MINUTES_PER_TEST)} Min \u2248 ${minutesText(estimate)} Min; ` + (remaining === null ? "Restminuten unbekannt." : `\xFCbrig \u2248 ${minutesText(remaining)} von ${config.planMinutes} Min (gesch\xE4tzt).`)
   );
-  if (estimate > config.perRunMinutes && !((opts.confirmMinutes ?? 0) >= estimate)) {
+  const confirmed = (opts.confirmMinutes ?? 0) >= estimate;
+  if (remaining === null && !confirmed) {
+    d.err(
+      `Die Restminuten bei BrowserStack sind nicht abrufbar; gesch\xE4tzt braucht der Lauf ${minutesText(estimate)} Min. Zum Best\xE4tigen mit --confirm-minutes ${Math.ceil(estimate)} erneut starten.`
+    );
+    return 1;
+  }
+  if (estimate > config.perRunMinutes && !confirmed) {
     d.err(
       `Der Lauf braucht gesch\xE4tzt ${minutesText(estimate)} Min, mehr als die ${config.perRunMinutes} Min pro Lauf. Zum Best\xE4tigen mit --confirm-minutes ${Math.ceil(estimate)} erneut starten.`
     );
@@ -8147,8 +8169,17 @@ async function runTests(dir, opts, d) {
   const ymlCopy = join5(dir, RUN_YML);
   let code = 1;
   try {
-    const { text, chosen } = narrowedYml(config.browserstackYml, devices, buildName);
-    writeFileSync3(ymlCopy, text, { mode: 384 });
+    let configFile = config.browserstackYml;
+    let chosen = platformNames(config.browserstackYml);
+    const credentials = {};
+    if (narrow) {
+      const n = narrowedYml(config.browserstackYml, narrow, buildName);
+      writeFileSync3(ymlCopy, n.text, { mode: 384 });
+      configFile = ymlCopy;
+      chosen = n.chosen;
+      credentials.BROWSERSTACK_USERNAME = user;
+      credentials.BROWSERSTACK_ACCESS_KEY = key;
+    }
     writeFileSync3(
       join5(dir, "run.json"),
       `${JSON.stringify({ ...meta, devices: chosen }, null, 2)}
@@ -8168,8 +8199,10 @@ async function runTests(dir, opts, d) {
         cwd: dir,
         env: {
           ...d.env,
-          // the SDK's documented config-file variable; credentials stay inside the mode-600 copy
-          BROWSERSTACK_CONFIG_FILE: ymlCopy,
+          ...credentials,
+          // the SDK's documented config-file and build-name variables
+          BROWSERSTACK_CONFIG_FILE: configFile,
+          BROWSERSTACK_BUILD_NAME: buildName,
           SDC_HOST: meta.host,
           SDC_RUN_DIR: dir,
           SDC_TICKET: meta.ticket,
