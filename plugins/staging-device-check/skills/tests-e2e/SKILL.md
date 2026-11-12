@@ -145,6 +145,8 @@ Rules for the spec:
   with an argument: BrowserStack's iPhone driver drops it. Use `evaluateWith(page, fn, arg)` from the harness;
   calls without an argument are fine. `run` refuses a spec that breaks this.
 - Type with `pressSequentially` (on iOS, `keyboard.type` writes nothing).
+- `await expect(locator).toBeVisible()` before every `tap` and `click`: BrowserStack's iPhone acts at once and fails
+  on an element that is still fading in ("visibility:hidden").
 
 ## 5. The list before any minutes are spent
 

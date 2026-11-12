@@ -112,6 +112,14 @@ describe('skills', () => {
     expect(md + ios).not.toContain('_locale');
   });
 
+  test('iOS taps do not wait for visibility: the skill and ios-limits say to wait first', () => {
+    const md = read('skills', 'tests-e2e', 'SKILL.md');
+    const ios = read('skills', 'tests-e2e', 'references', 'ios-limits.md');
+    expect(ios).toMatch(/do not wait/);
+    expect(md).toContain('toBeVisible()');
+    expect(md).toMatch(/before every `tap`/);
+  });
+
   test('tests-e2e says a real failure wins over nicht prüfbar hier', () => {
     expect(read('skills', 'tests-e2e', 'SKILL.md')).toMatch(/real failure wins/);
   });

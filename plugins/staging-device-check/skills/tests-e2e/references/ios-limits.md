@@ -19,6 +19,9 @@ From the probe and the SDK live checks on iPhone 16 / iOS 18 and Samsung Galaxy 
 - **The on-screen keyboard never opens through Playwright.** Every check that needs it is `nicht prüfbar hier` —
   "auf eigenem iPhone prüfen" — never a pass.
 - `keyboard.type` writes nothing; `pressSequentially` does.
+- **`tap` and `click` do not wait** for the element to be visible: an element that is still fading in fails at once
+  with `element is not actionable: element is not visible (visibility:hidden)`. Wait with
+  `await expect(locator).toBeVisible()` first.
 - `clearCookies({ name })` is refused; the harness falls back to clearing all cookies at the end of a test.
 - `page.screenshot` shows only the web content, without the Safari toolbar.
 - Not supported: console logs, Playwright logs, geolocation, `resolution`. Only Safari; there is no Chrome on iPhone.
