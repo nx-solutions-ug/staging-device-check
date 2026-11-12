@@ -4,7 +4,7 @@
  * example domain. Results go into docs/live-checks.md.
  */
 import { existsSync } from 'node:fs';
-import { expect, test } from './harness/fixtures.js';
+import { check, expect, test } from './harness/fixtures.js';
 
 const ORIGIN = 'https://example.com';
 
@@ -30,7 +30,7 @@ test('sdk smoke', async ({ page, context, shot, layout }, testInfo) => {
     testInfo.annotations.push({ type, description });
   const ios = /iPhone|iPad|iPod/.test(await page.evaluate(() => navigator.userAgent));
 
-  await test.step('cookie through addCookies(url)', async () => {
+  await check('cookie through addCookies(url)', async () => {
     await page.goto(`${ORIGIN}/`, { waitUntil: 'domcontentloaded' });
     await context.addCookies([
       { name: 'sdc_smoke', value: 'eins', url: ORIGIN, secure: true, sameSite: 'Lax' },
@@ -57,7 +57,7 @@ test('sdk smoke', async ({ page, context, shot, layout }, testInfo) => {
 
   await page.setContent(PAGE);
 
-  await test.step('viewport numbers', async () => {
+  await check('viewport numbers', async () => {
     const v = await page.evaluate(() => ({
       inner: window.innerHeight,
       lvh: Math.round(document.getElementById('lvh')!.getBoundingClientRect().height),
@@ -76,7 +76,7 @@ test('sdk smoke', async ({ page, context, shot, layout }, testInfo) => {
     } else expect.soft(v.inner).toBeGreaterThan(0);
   });
 
-  await test.step('tap and fill focus the input', async () => {
+  await check('tap and fill focus the input', async () => {
     await page.locator('#name').tap();
     // the focus can land a moment after the tap (Android): wait briefly instead of checking at once
     await page
@@ -96,13 +96,13 @@ test('sdk smoke', async ({ page, context, shot, layout }, testInfo) => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   });
 
-  await test.step('shot writes a file', async () => {
+  await check('shot writes a file', async () => {
     const path = await shot('Smoke');
     note('shot', existsSync(path) ? 'Datei geschrieben' : 'keine Datei');
     expect.soft(existsSync(path)).toBe(true);
   });
 
-  await test.step('layout returns R1 for the pass variant', async () => {
+  await check('layout returns R1 for the pass variant', async () => {
     const results = await layout({
       header: '#head',
       actionBar: '#bar',

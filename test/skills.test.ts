@@ -51,11 +51,10 @@ describe('skills', () => {
     for (const s of [
       'evaluateWith',
       'account(',
-      'test.step(',
+      "check('",
       'expect.soft',
       'zuPruefen(',
-      'nichtPruefbarHier(',
-      'step.skip()',
+      '{ keyboard: true }',
       'One `test` per persona',
       'SDC_MAILBOX',
       '--mailbox demo',
@@ -63,8 +62,12 @@ describe('skills', () => {
       expect(md).toContain(s);
     // the per-check annotation helpers the skill names exist in the harness
     const fixtures = readFileSync(join(PLUGIN, 'workspace', 'harness', 'fixtures.ts'), 'utf8');
-    for (const f of ['export function zuPruefen', 'export function nichtPruefbarHier'])
-      expect(fixtures).toContain(f);
+    expect(fixtures).toContain('export async function check(');
+    // the spec example uses only check(), never a raw test.step or a hand-written annotation
+    const example = /```ts\n([\s\S]*?)```/.exec(md)?.[1] ?? '';
+    expect(example).toContain("check('");
+    expect(example).not.toContain('test.step');
+    expect(example).not.toContain('annotations.push');
   });
 
   test('setup sends set-secret to her own terminal, never through the chat', () => {

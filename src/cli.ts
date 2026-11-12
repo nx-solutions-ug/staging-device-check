@@ -283,7 +283,11 @@ function report(dir: string, ticket: string, d: CliDeps): number {
   const shotsDir = join(dir, 'screenshots');
   const shots = existsSync(shotsDir) ? readdirSync(shotsDir).filter((f) => f.endsWith('.png')) : [];
   const md = renderStand(
-    parseResult(result, shots),
+    parseResult(
+      result,
+      shots,
+      meta.plan ? { tests: meta.plan, devices: meta.devices ?? [] } : undefined,
+    ),
     ticket,
     meta.host,
     meta.devices ?? [],

@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { isMap, isSeq, parseDocument, YAMLSeq } from 'yaml';
 import { checkYml, usedMinutes } from './bsyml.js';
 import { evaluateArgFindings } from './evaluate-guard.js';
+import { specPlan, type SpecPlan } from './spec-plan.js';
 import { loadConfig } from './config.js';
 import { stateDir } from './paths.js';
 import { redactor } from './redact.js';
@@ -54,7 +55,14 @@ export type RunDeps = {
   err: (line: string) => void;
 };
 
-export type RunMeta = { ticket: string; host: string; createdAt: string; devices?: string[] };
+export type RunMeta = {
+  ticket: string;
+  host: string;
+  createdAt: string;
+  devices?: string[];
+  /** the checks of each persona test, read from the spec before the SDK starts */
+  plan?: SpecPlan['tests'];
+};
 
 const RUN_YML = '.browserstack.run.yml';
 const TOKENS = '.run-tokens';
@@ -238,6 +246,21 @@ function specFindings(dir: string): string[] {
     });
 }
 
+/** The planned checks of every spec in the run folder. */
+function readPlan(dir: string): SpecPlan {
+  const plan: SpecPlan = { tests: [], problems: [] };
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.spec.ts'))) {
+    try {
+      const p = specPlan(readFileSync(join(dir, f), 'utf8'), f);
+      plan.tests.push(...p.tests);
+      plan.problems.push(...p.problems);
+    } catch (e) {
+      plan.problems.push(`${f} (nicht lesbar: ${(e as Error).message.split('\n')[0]})`);
+    }
+  }
+  return plan;
+}
+
 const NOT_STARTED = /UmgebungNichtGestartet|Umgebung nicht gestartet/;
 
 const minutesText = (m: number) => `${Math.round(m * 10) / 10}`.replace('.', ',');
@@ -252,6 +275,13 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
     d.err(
       `Der Test übergibt page.evaluate (oder $eval, waitForFunction …) ein Argument, das auf dem iPhone verloren geht: ${unsafe.join(', ')}. ` +
         'Bitte evaluateWith(page, fn, arg) aus der Harness verwenden. Der Lauf startet nicht.',
+    );
+    return 1;
+  }
+  const planned = readPlan(dir);
+  if (planned.problems.length) {
+    d.err(
+      `Der Test ist so nicht lauffähig: ${planned.problems.join('; ')}. Der Lauf startet nicht.`,
     );
     return 1;
   }
@@ -334,7 +364,7 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
     }
     writeFileSync(
       join(dir, 'run.json'),
-      `${JSON.stringify({ ...meta, devices: chosen }, null, 2)}\n`,
+      `${JSON.stringify({ ...meta, devices: chosen, plan: planned.tests }, null, 2)}\n`,
     );
     // The harness throws UmgebungNichtGestartet on the first test; the remaining tests would open device sessions
     // against a host that shows no app, so the SDK is stopped right there.

@@ -393,6 +393,30 @@ describe('runTests', () => {
     expect(t).not.toContain('tests-e2e.spec.ts:7');
   });
 
+  test('stores the planned checks in run.json before the SDK starts, and refuses raw test.step', async () => {
+    const h = home();
+    let planAtStart: unknown;
+    const { d, err, spawned } = deps(h.env, {
+      spawn: async (_c, _a, opts) => {
+        planAtStart = JSON.parse(readFileSync(join(opts.cwd, 'run.json'), 'utf8')).plan;
+        return 0;
+      },
+    });
+    const dir = prepare('ACME-1', 'd-acme-de--main.dating.staging.example.test', d);
+    const spec = (body: string) =>
+      writeFileSync(
+        join(dir, 'tests-e2e.spec.ts'),
+        `import { check, test } from './harness/fixtures.js';\ntest('Konto A (frau)', async () => {\n${body}\n});\n`,
+      );
+    spec("  await test.step('roh', async () => {});");
+    expect(await runTests(dir, {}, d)).toBe(1);
+    expect(spawned).toEqual([]);
+    expect(err.join('\n')).toContain('check()');
+    spec("  await check('Kopf da', async () => {});\n  await check('Preis', async () => {});");
+    expect(await runTests(dir, {}, d)).toBe(0);
+    expect(planAtStart).toEqual([{ title: 'Konto A (frau)', checks: ['Kopf da', 'Preis'] }]);
+  });
+
   test('a stale yml copy is removed before anything else', async () => {
     const h = home();
     const { d } = deps(h.env, { listTests: async () => 0 });

@@ -51,13 +51,12 @@ attachments (design screenshots), and the **latest comment whose first line star
 
 `node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" prepare <TICKET> --host <host>` creates the run folder and prints it.
 Write `tests-e2e.spec.ts` into that folder: **one `test` per persona** (one device session and one sign-in each),
-and inside it **one `test.step` per check**, named with the check's wording. `report` builds one row per step and
-device.
+and inside it **one `check('<Prüfung>', …)` per check**. `check()` is the harness's step: its title is the row of the
+result section, and it owns everything about that row (the keyboard skip on iOS, the "zu prüfen" note), so title and
+note can never drift apart.
 
 ```ts
-import { evaluateWith, expect, nichtPruefbarHier, test, zuPruefen } from './harness/fixtures.js';
-
-const ios = () => /iphone|ipad/i.test(test.info().project.name);
+import { check, evaluateWith, expect, test } from './harness/fixtures.js';
 
 test.describe('Konto A (frau)', () => {
   test.use({ persona: 'frau' });
@@ -66,11 +65,11 @@ test.describe('Konto A (frau)', () => {
     await account('A'); // first: signs in (quick login or mail code)
     await staging.goto('/registrierung/wohnort'); // only paths on the confirmed host
 
-    await test.step('Wohnort-Schritt zeigt die Auswahl', async () => {
+    await check('Wohnort-Schritt zeigt die Auswahl', async () => {
       await expect.soft(page.getByRole('heading', { name: 'Wohnort' })).toBeVisible();
     });
 
-    await test.step('Weiter-Knopf bleibt im sichtbaren Bereich', async () => {
+    await check('Weiter-Knopf bleibt im sichtbaren Bereich', async () => {
       for (const r of await layout({
         header: 'header',
         actionBar: '.bottom-bar',
@@ -79,47 +78,50 @@ test.describe('Konto A (frau)', () => {
         expect.soft(r.outcome, `${r.rule}: ${r.detail}`).not.toBe('nicht bestanden');
     });
 
-    await test.step('Abstände wie im Entwurf', async () => {
-      zuPruefen('Abstände wie im Entwurf', await shot('Wohnort'));
+    await check('Abstände wie im Entwurf', async ({ zuPruefen }) => {
+      zuPruefen(await shot('Wohnort')); // the row says "zu prüfen (Bild)" and names the screenshot
     });
 
-    await test.step('Weiter-Knopf über der Tastatur', async (step) => {
-      if (ios()) {
-        nichtPruefbarHier(
-          'Weiter-Knopf über der Tastatur',
-          'Tastatur auf iOS — auf eigenem iPhone prüfen',
-        );
-        step.skip(); // only this step's body; the persona's other checks still run on the iPhone
-      }
-      await page.getByLabel('Ort').tap();
-      for (const r of await layout({ header: 'header', actionBar: '.bottom-bar', keyboard: true }))
-        expect.soft(r.outcome, `${r.rule}: ${r.detail}`).not.toBe('nicht bestanden');
-    });
+    // keyboard: true — on the iPhone this check is "nicht prüfbar hier" and its body is skipped;
+    // on Android it runs. The persona's other checks run on both.
+    await check(
+      'Weiter-Knopf über der Tastatur',
+      async () => {
+        await page.getByLabel('Ort').tap();
+        for (const r of await layout({
+          header: 'header',
+          actionBar: '.bottom-bar',
+          keyboard: true,
+        }))
+          expect.soft(r.outcome, `${r.rule}: ${r.detail}`).not.toBe('nicht bestanden');
+      },
+      { keyboard: true },
+    );
   });
 });
 ```
 
 Rules for the spec:
 
-- **One `test` per persona**, titled with the account and persona. `await account('<label>')` comes first, with a
-  label from the settings. Several personas → several tests; never one test per check (each test is a new device
-  session and a new sign-in, and mail codes are limited to one per minute and five per hour).
-- **Each check is a `test.step`** whose title is the check in the ticket's wording; the title is the row in the
-  result section. Assert only with `expect.soft`, so a failing check does not stop the following ones.
+- **One `test` per persona**, titled with the account and persona as fixed text. `await account('<label>')` comes
+  first, with a label from the settings. Several personas → several tests; never one test per check (each test is a
+  new device session and a new sign-in, and mail codes are limited to one per minute and five per hour).
+- **Each check is `check('<Prüfung>', body, opts?)`**, its title fixed text in the ticket's wording. No raw
+  `test.step`: `run` refuses it, and it reads the planned check titles from the spec before the run, so a check that
+  never ran (after a hard failure) still gets its row ("nicht bestanden — nicht gelaufen").
+- Assert only with `expect.soft`, so a failing check does not stop the following ones.
 - Navigate with `staging.goto(path)`; it refuses other hosts. Never set cookies yourself.
-- Map the status table: every `✅ da` row → a step; every `⚠️ abweichend` row → a step against the described
-  deviation, not the original ticket text; `✖` rows → only listed as "nicht in diesem Ticket", no step.
+- Map the status table: every `✅ da` row → a check; every `⚠️ abweichend` row → a check against the described
+  deviation, not the original ticket text; `✖` rows → only listed as "nicht in diesem Ticket", no check.
 - Each check is one of:
   - **automatic** — asserted with `expect.soft`: presence, text, viewport numbers, the layout rules (`layout()`, see
     `references/layout-rules.md`);
-  - **visual** — `zuPruefen('<step title>', await shot('<name>'))` inside the step: the row says "zu prüfen (Bild)"
-    and names the screenshot, never a pass;
-  - **not testable here** — every check that needs the iOS keyboard: on iOS,
-    `nichtPruefbarHier('<step title>', '<reason>')` and `step.skip()` inside that step. Never skip the whole test
-    for it.
-- The step title passed to `zuPruefen` / `nichtPruefbarHier` must be exactly the `test.step` title.
-- A whole-test skip is only for the demo mailbox case, which the harness handles in `account()` with a
-  `'nicht prüfbar hier'` annotation; a skip without that annotation is reported as "nicht bestanden".
+  - **visual** — `zuPruefen(await shot('<name>'))` with the `zuPruefen` that `check` hands the body: the row says
+    "zu prüfen (Bild)" and names the screenshot, never a pass;
+  - **needs the iOS keyboard** — `check(title, body, { keyboard: true })`: "nicht prüfbar hier" on the iPhone, run
+    on Android. Never skip the whole test for it.
+- A whole-test skip is only for the demo mailbox case, which the harness handles in `account()`; its checks then
+  read "nicht prüfbar hier". A skip without that annotation is reported as "nicht bestanden".
 - **Never** `page.evaluate(fn, arg)`, `$eval(sel, fn, arg)`, `evaluateAll(fn, arg)` or `waitForFunction(fn, arg)`
   with an argument: BrowserStack's iPhone driver drops it. Use `evaluateWith(page, fn, arg)` from the harness;
   calls without an argument are fine. `run` refuses a spec that breaks this.

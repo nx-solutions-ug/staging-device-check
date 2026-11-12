@@ -176,24 +176,49 @@ export const test = base.extend<Options & Fixtures>({
   },
 });
 
-/**
- * Marks a check (a `test.step`) for the tester's eye: the report shows it as "zu prüfen (Bild)" with the
- * screenshot's name. Call it inside the step, after `shot()`.
- */
-export function zuPruefen(step: string, shotPath: string, hint?: string): void {
-  const file = basename(shotPath);
-  base.info().annotations.push({
-    type: 'zu prüfen',
-    description: stepNote(step, hint ? `${hint} — ${file}` : file),
-  });
-}
+/** What `check()` hands the check's body. */
+export type CheckTools = {
+  /** shows the check as "zu prüfen (Bild)" with this screenshot's name (call it after `shot()`) */
+  zuPruefen: (shotPath: string, hint?: string) => void;
+};
+
+export type CheckOptions = {
+  /** needs the on-screen keyboard: on iOS (no keyboard through Playwright) "nicht prüfbar hier", body skipped */
+  keyboard?: boolean;
+};
+
+const IOS = /iphone|ipad|ios/i; // the same device rule as the report's iPhone column
 
 /**
- * Marks a check (a `test.step`) BrowserStack cannot test on this device, e.g. anything that needs the iOS keyboard.
- * Only that step's row says "nicht prüfbar hier"; skip just the step's body (`step.skip()`), never the whole test.
+ * One check of the ticket = one `test.step` with this title, which becomes the row of the result section. The title
+ * and every annotation about it live here, so they cannot diverge. Assert with `expect.soft` inside, so a failing
+ * check does not stop the next one.
  */
-export function nichtPruefbarHier(step: string, reason: string): void {
-  base.info().annotations.push({ type: 'nicht prüfbar hier', description: stepNote(step, reason) });
+export async function check(
+  title: string,
+  body: (tools: CheckTools) => Promise<void> | void,
+  opts: CheckOptions = {},
+): Promise<void> {
+  await base.step(title, async (step) => {
+    const info = base.info();
+    if (opts.keyboard && IOS.test(info.project.name)) {
+      info.annotations.push({
+        type: 'nicht prüfbar hier',
+        description: stepNote(title, 'Tastatur auf iOS — auf eigenem iPhone prüfen'),
+      });
+      step.skip(); // ends only this check's body; the persona's other checks still run
+    }
+    await body({
+      zuPruefen: (shotPath, hint) =>
+        info.annotations.push({
+          type: 'zu prüfen',
+          description: stepNote(
+            title,
+            hint ? `${hint} — ${basename(shotPath)}` : basename(shotPath),
+          ),
+        }),
+    });
+  });
 }
 
 export { expect };

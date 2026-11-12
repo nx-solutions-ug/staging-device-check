@@ -1279,9 +1279,9 @@ ${indent}`) + "'";
         return quotedString(value, ctx);
       }
       const indent = ctx.indent || (ctx.forceBlockIndent || containsDocumentMarker(value) ? "  " : "");
-      const literal = blockQuote === "literal" ? true : blockQuote === "folded" || type === Scalar.Scalar.BLOCK_FOLDED ? false : type === Scalar.Scalar.BLOCK_LITERAL ? true : !lineLengthOverLimit(value, lineWidth, indent.length);
+      const literal2 = blockQuote === "literal" ? true : blockQuote === "folded" || type === Scalar.Scalar.BLOCK_FOLDED ? false : type === Scalar.Scalar.BLOCK_LITERAL ? true : !lineLengthOverLimit(value, lineWidth, indent.length);
       if (!value)
-        return literal ? "|\n" : ">\n";
+        return literal2 ? "|\n" : ">\n";
       let chomp;
       let endStart;
       for (endStart = value.length; endStart > 0; --endStart) {
@@ -1330,7 +1330,7 @@ ${indent}`) + "'";
         if (onComment)
           onComment();
       }
-      if (!literal) {
+      if (!literal2) {
         const foldedValue = value.replace(/\n+/g, "\n$&").replace(/(?:^|\n)([\t ].*)(?:([\n\t ]*)\n(?![\n\t ]))?/g, "$1$2").replace(/\n+/g, `$&${indent}`);
         let literalFallback = false;
         const foldOptions = getFoldOptions(ctx, true);
@@ -7845,17 +7845,20 @@ function stepOutcome(step, annotations) {
   if (look !== null) return { outcome: "zu pr\xFCfen (Bild)", note: look };
   return { outcome: "bestanden", note: "" };
 }
-function parseResult(report2, screenshots) {
+var NOT_RUN = "nicht gelaufen";
+var namesStep = (a, titles) => titles.some((t) => a.description === t || (a.description ?? "").startsWith(`${t}: `));
+function parseResult(report2, screenshots, plan) {
   const specs = [];
   const walk = (suite) => {
     specs.push(...suite.specs ?? []);
     for (const s of suite.suites ?? []) walk(s);
   };
   for (const s of report2.suites ?? []) walk(s);
-  const withSteps = new Set(
-    specs.filter((sp) => sp.tests?.some((t) => t.results?.at(-1)?.steps?.length)).map((sp) => sp.title ?? "")
+  const personas = new Set(
+    plan ? plan.tests.map((t) => t.title) : specs.filter((sp) => sp.tests?.some((t) => t.results?.at(-1)?.steps?.length)).map((sp) => sp.title ?? "")
   );
-  const prefix2 = (spec, step) => withSteps.size > 1 ? `${spec}: ${step}` : step;
+  const prefix2 = (spec, step) => personas.size > 1 ? `${spec}: ${step}` : step;
+  const planned = (spec) => plan?.tests.find((t) => t.title === spec)?.checks ?? [];
   const checks = [];
   for (const spec of specs) {
     const specTitle = spec.title ?? "";
@@ -7865,7 +7868,12 @@ function parseResult(report2, screenshots) {
       const last = t.results?.at(-1) ?? {};
       const steps = last.steps ?? [];
       if (!steps.length || last.status === "skipped") {
-        checks.push({ title: specTitle, device, project, ...outcomeOf(t) });
+        const whole = outcomeOf(t);
+        const own = planned(specTitle);
+        if (whole.outcome === "nicht pr\xFCfbar hier" && own.length)
+          for (const c of own)
+            checks.push({ title: prefix2(specTitle, c), device, project, ...whole });
+        else checks.push({ title: specTitle, device, project, ...whole });
         continue;
       }
       const annotations = annotationsOf(t);
@@ -7876,16 +7884,39 @@ function parseResult(report2, screenshots) {
           project,
           ...stepOutcome(step, annotations)
         });
-      const failed = last.status !== "passed";
-      if (failed && !steps.some((s) => s.error))
+      const problems = [];
+      const titles = steps.map((s) => s.title ?? "");
+      for (const a of annotations)
+        if ((a.type === ZU_PRUEFEN || a.type === NICHT_PRUEFBAR) && !namesStep(a, titles))
+          problems.push(`Notiz passt zu keiner Pr\xFCfung: ${a.description ?? ""}`);
+      if (last.status !== "passed" && !steps.some((s) => s.error))
+        problems.push(firstLine(last.errors?.[0]?.message ?? last.status ?? ""));
+      if (problems.length)
         checks.push({
           title: `${specTitle}: Ablauf`,
           device,
           project,
           outcome: "nicht bestanden",
-          note: firstLine(last.errors?.[0]?.message ?? last.status ?? "")
+          note: problems.join("; ")
         });
     }
+  }
+  if (plan) {
+    const devices = [...new Set(plan.devices.map(deviceOf))];
+    for (const pt of plan.tests)
+      for (const device of devices)
+        for (const c of pt.checks) {
+          const title = prefix2(pt.title, c);
+          if (!checks.some((x) => x.title === title && x.device === device))
+            checks.push({ title, device, project: "", outcome: "nicht bestanden", note: NOT_RUN });
+        }
+    const order = /* @__PURE__ */ new Map();
+    plan.tests.forEach((pt, i) => {
+      pt.checks.forEach((c, j) => order.set(prefix2(pt.title, c), i * 1e3 + j));
+      order.set(`${pt.title}: Ablauf`, i * 1e3 + 999);
+    });
+    const rank = (c) => order.get(c.title) ?? Number.MAX_SAFE_INTEGER;
+    checks.sort((a, b) => rank(a) - rank(b));
   }
   return { checks, screenshots };
 }
@@ -11635,35 +11666,35 @@ var flow = (superClass) => class FlowParserMixin extends superClass {
     const endOfInit = () => this.match(8) || this.match(4);
     switch (this.state.type) {
       case 134: {
-        const literal = this.parseNumericLiteral(this.state.value);
+        const literal2 = this.parseNumericLiteral(this.state.value);
         if (endOfInit()) {
           return {
             type: "number",
-            loc: literal.start,
-            value: literal
+            loc: literal2.start,
+            value: literal2
           };
         }
         break;
       }
       case 133: {
-        const literal = this.parseStringLiteral(this.state.value);
+        const literal2 = this.parseStringLiteral(this.state.value);
         if (endOfInit()) {
           return {
             type: "string",
-            loc: literal.start,
-            value: literal
+            loc: literal2.start,
+            value: literal2
           };
         }
         break;
       }
       case 81:
       case 82: {
-        const literal = this.parseBooleanLiteral(this.match(81));
+        const literal2 = this.parseBooleanLiteral(this.match(81));
         if (endOfInit()) {
           return {
             type: "boolean",
-            loc: literal.start,
-            value: literal
+            loc: literal2.start,
+            value: literal2
           };
         }
       }
@@ -20037,10 +20068,10 @@ var typescript = (superClass) => class TypeScriptParserMixin extends superClass 
     const quasis = [curElt];
     if (curElt.tail) {
       const node = this.startNodeAt(startLoc);
-      const literal = this.startNodeAt(startLoc);
-      literal.expressions = [];
-      literal.quasis = quasis;
-      node.literal = this.finishNode(literal, "TemplateLiteral");
+      const literal2 = this.startNodeAt(startLoc);
+      literal2.expressions = [];
+      literal2.quasis = quasis;
+      node.literal = this.finishNode(literal2, "TemplateLiteral");
       return this.finishNode(node, "TSLiteralType");
     } else {
       const substitutions = [];
@@ -22830,6 +22861,57 @@ function evaluateArgFindings(source, file) {
   return out;
 }
 
+// src/spec-plan.ts
+var literal = (n) => {
+  if (!n) return null;
+  if (n.type === "StringLiteral") return n.value;
+  if (n.type === "TemplateLiteral" && n.expressions.length === 0)
+    return n.quasis[0].value.cooked;
+  return null;
+};
+var isTestCall = (callee) => callee.type === "Identifier" && callee.name === "test" || callee.type === "MemberExpression" && callee.object.type === "Identifier" && callee.object.name === "test" && ["only", "fixme", "fail", "slow"].includes(callee.property.name ?? "");
+var isStepCall = (callee) => callee.type === "MemberExpression" && callee.property.type === "Identifier" && callee.property.name === "step";
+function specPlan(source, file) {
+  const ast = parse2(source, { sourceType: "module", plugins: ["typescript"] });
+  const plan = { tests: [], problems: [] };
+  const visit = (n, current) => {
+    if (!n || typeof n !== "object") return;
+    if (Array.isArray(n)) {
+      for (const x of n) visit(x, current);
+      return;
+    }
+    const node = n;
+    let inner = current;
+    if (node.type === "CallExpression") {
+      const callee = node.callee;
+      const args = node.arguments;
+      const at = `${file}:${node.loc?.start.line ?? "?"}`;
+      if (isTestCall(callee)) {
+        const title = literal(args[0]);
+        if (title === null) plan.problems.push(`${at}: der Testtitel muss ein fester Text sein`);
+        else {
+          inner = { title, checks: [] };
+          plan.tests.push(inner);
+        }
+      } else if (callee.type === "Identifier" && callee.name === "check") {
+        const title = literal(args[0]);
+        if (title === null)
+          plan.problems.push(`${at}: der Pr\xFCfungstitel muss ein fester Text sein`);
+        else if (!current) plan.problems.push(`${at}: check() steht au\xDFerhalb eines Tests`);
+        else current.checks.push(title);
+      } else if (isStepCall(callee)) {
+        plan.problems.push(
+          `${at}: test.step statt check() \u2014 Pr\xFCfungen bitte mit check() schreiben`
+        );
+      }
+    }
+    for (const [k, v] of Object.entries(node))
+      if (k !== "loc" && k !== "start" && k !== "end") visit(v, inner);
+  };
+  visit(ast, null);
+  return plan;
+}
+
 // src/redact.ts
 var MASK = "\xABgeheim\xBB";
 var MIN_LENGTH = 4;
@@ -23067,6 +23149,19 @@ function specFindings(dir) {
     }
   });
 }
+function readPlan(dir) {
+  const plan = { tests: [], problems: [] };
+  for (const f of readdirSync(dir).filter((x) => x.endsWith(".spec.ts"))) {
+    try {
+      const p = specPlan(readFileSync4(join5(dir, f), "utf8"), f);
+      plan.tests.push(...p.tests);
+      plan.problems.push(...p.problems);
+    } catch (e) {
+      plan.problems.push(`${f} (nicht lesbar: ${e.message.split("\n")[0]})`);
+    }
+  }
+  return plan;
+}
 var NOT_STARTED = /UmgebungNichtGestartet|Umgebung nicht gestartet/;
 var minutesText = (m) => `${Math.round(m * 10) / 10}`.replace(".", ",");
 async function runTests(dir, opts, d) {
@@ -23077,6 +23172,13 @@ async function runTests(dir, opts, d) {
   if (unsafe.length) {
     d.err(
       `Der Test \xFCbergibt page.evaluate (oder $eval, waitForFunction \u2026) ein Argument, das auf dem iPhone verloren geht: ${unsafe.join(", ")}. Bitte evaluateWith(page, fn, arg) aus der Harness verwenden. Der Lauf startet nicht.`
+    );
+    return 1;
+  }
+  const planned = readPlan(dir);
+  if (planned.problems.length) {
+    d.err(
+      `Der Test ist so nicht lauff\xE4hig: ${planned.problems.join("; ")}. Der Lauf startet nicht.`
     );
     return 1;
   }
@@ -23150,7 +23252,7 @@ async function runTests(dir, opts, d) {
     }
     writeFileSync3(
       join5(dir, "run.json"),
-      `${JSON.stringify({ ...meta, devices: chosen }, null, 2)}
+      `${JSON.stringify({ ...meta, devices: chosen, plan: planned.tests }, null, 2)}
 `
     );
     const stop = new AbortController();
@@ -23445,7 +23547,11 @@ function report(dir, ticket, d) {
   const shotsDir = join6(dir, "screenshots");
   const shots = existsSync5(shotsDir) ? readdirSync2(shotsDir).filter((f) => f.endsWith(".png")) : [];
   const md = renderStand(
-    parseResult(result, shots),
+    parseResult(
+      result,
+      shots,
+      meta.plan ? { tests: meta.plan, devices: meta.devices ?? [] } : void 0
+    ),
     ticket,
     meta.host,
     meta.devices ?? [],

@@ -268,6 +268,50 @@ describe('install-workspace', () => {
 });
 
 describe('prepare, run and report through the CLI', () => {
+  test('report lists planned checks without a result as nicht gelaufen', async () => {
+    const h = home();
+    const { d, out } = deps(h.env);
+    const dir = join(h.root, 'run');
+    mkdirSync(dir);
+    writeFileSync(
+      join(dir, 'run.json'),
+      JSON.stringify({
+        ticket: 'ACME-1',
+        host: 'd-acme-de--main.dating.staging.example.test',
+        createdAt: '2026-11-12T10:30:00',
+        devices: ['Samsung Galaxy S23'],
+        plan: [{ title: 'Konto A (frau)', checks: ['Kopf da', 'Preis'] }],
+      }),
+    );
+    writeFileSync(
+      join(dir, 'result.json'),
+      JSON.stringify({
+        suites: [
+          {
+            specs: [
+              {
+                title: 'Konto A (frau)',
+                tests: [
+                  {
+                    projectName: 'chrome-Samsung Galaxy S23:13.0-browserstack-mobile',
+                    results: [
+                      {
+                        status: 'failed',
+                        steps: [{ title: 'Kopf da', error: { message: 'Error: weg' } }],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(await main(['report', dir, 'ACME-1'], d)).toBe(0);
+    expect(out.join('\n')).toContain('| Preis | — | nicht bestanden | Android: nicht gelaufen |');
+  });
+
   test('report renders stand-abschnitt.md from result.json', async () => {
     const h = home();
     const dir = join(h.root, 'run');

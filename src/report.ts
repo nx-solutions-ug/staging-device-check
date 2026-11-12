@@ -106,20 +106,36 @@ function stepOutcome(step: PwStep, annotations: Annotation[]): { outcome: Outcom
   return { outcome: 'bestanden', note: '' };
 }
 
-export function parseResult(report: PlaywrightReport, screenshots: string[]): RunResult {
+/** The checks `run` read from the spec before the SDK started (run.json), and the devices of the run. */
+export type RunPlan = { tests: Array<{ title: string; checks: string[] }>; devices: string[] };
+
+const NOT_RUN = 'nicht gelaufen';
+
+/** Whether an annotation of a check names one of these step titles (`<step>` or `<step>: <rest>`). */
+const namesStep = (a: Annotation, titles: string[]) =>
+  titles.some((t) => a.description === t || (a.description ?? '').startsWith(`${t}: `));
+
+export function parseResult(
+  report: PlaywrightReport,
+  screenshots: string[],
+  plan?: RunPlan,
+): RunResult {
   const specs: PwSpec[] = [];
   const walk = (suite: PwSuite) => {
     specs.push(...(suite.specs ?? []));
     for (const s of suite.suites ?? []) walk(s);
   };
   for (const s of report.suites ?? []) walk(s);
-  // with several persona tests, a step row names its persona test
-  const withSteps = new Set(
-    specs
-      .filter((sp) => sp.tests?.some((t) => t.results?.at(-1)?.steps?.length))
-      .map((sp) => sp.title ?? ''),
+  // with several persona tests, a check row names its persona test
+  const personas = new Set(
+    plan
+      ? plan.tests.map((t) => t.title)
+      : specs
+          .filter((sp) => sp.tests?.some((t) => t.results?.at(-1)?.steps?.length))
+          .map((sp) => sp.title ?? ''),
   );
-  const prefix = (spec: string, step: string) => (withSteps.size > 1 ? `${spec}: ${step}` : step);
+  const prefix = (spec: string, step: string) => (personas.size > 1 ? `${spec}: ${step}` : step);
+  const planned = (spec: string) => plan?.tests.find((t) => t.title === spec)?.checks ?? [];
 
   const checks: RunCheck[] = [];
   for (const spec of specs) {
@@ -130,7 +146,13 @@ export function parseResult(report: PlaywrightReport, screenshots: string[]): Ru
       const last = t.results?.at(-1) ?? {};
       const steps = last.steps ?? [];
       if (!steps.length || last.status === 'skipped') {
-        checks.push({ title: specTitle, device, project, ...outcomeOf(t) });
+        const whole = outcomeOf(t);
+        const own = planned(specTitle);
+        // a persona skipped as a whole (demo mailbox): each planned check says so
+        if (whole.outcome === 'nicht prüfbar hier' && own.length)
+          for (const c of own)
+            checks.push({ title: prefix(specTitle, c), device, project, ...whole });
+        else checks.push({ title: specTitle, device, project, ...whole });
         continue;
       }
       const annotations = annotationsOf(t);
@@ -141,17 +163,43 @@ export function parseResult(report: PlaywrightReport, screenshots: string[]): Ru
           project,
           ...stepOutcome(step, annotations),
         });
+      const problems: string[] = [];
+      // a note for a check that has no step: its check never got its row, so the run is not trustworthy
+      const titles = steps.map((s) => s.title ?? '');
+      for (const a of annotations)
+        if ((a.type === ZU_PRUEFEN || a.type === NICHT_PRUEFBAR) && !namesStep(a, titles))
+          problems.push(`Notiz passt zu keiner Prüfung: ${a.description ?? ''}`);
       // a failure outside every step (sign-in, a hard error between steps) must not vanish
-      const failed = last.status !== 'passed';
-      if (failed && !steps.some((s) => s.error))
+      if (last.status !== 'passed' && !steps.some((s) => s.error))
+        problems.push(firstLine(last.errors?.[0]?.message ?? last.status ?? ''));
+      if (problems.length)
         checks.push({
           title: `${specTitle}: Ablauf`,
           device,
           project,
           outcome: 'nicht bestanden',
-          note: firstLine(last.errors?.[0]?.message ?? last.status ?? ''),
+          note: problems.join('; '),
         });
     }
+  }
+
+  if (plan) {
+    const devices = [...new Set(plan.devices.map(deviceOf))];
+    for (const pt of plan.tests)
+      for (const device of devices)
+        for (const c of pt.checks) {
+          const title = prefix(pt.title, c);
+          if (!checks.some((x) => x.title === title && x.device === device))
+            checks.push({ title, device, project: '', outcome: 'nicht bestanden', note: NOT_RUN });
+        }
+    // rows in the planned order; anything unplanned (Ablauf, per-test rows) after its persona's checks
+    const order = new Map<string, number>();
+    plan.tests.forEach((pt, i) => {
+      pt.checks.forEach((c, j) => order.set(prefix(pt.title, c), i * 1000 + j));
+      order.set(`${pt.title}: Ablauf`, i * 1000 + 999);
+    });
+    const rank = (c: RunCheck) => order.get(c.title) ?? Number.MAX_SAFE_INTEGER;
+    checks.sort((a, b) => rank(a) - rank(b));
   }
   return { checks, screenshots };
 }
