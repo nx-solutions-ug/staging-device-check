@@ -9,6 +9,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -30,6 +31,7 @@ import {
   type Device,
   type Mailbox,
   type RunDeps,
+  validateTicket,
 } from './run.js';
 import { readGatePassword, realSecretDeps, writeGatePassword } from './secret.js';
 
@@ -245,6 +247,7 @@ async function localState(d: CliDeps): Promise<number> {
 // ---------- report ----------
 
 function report(dir: string, ticket: string, d: CliDeps): number {
+  validateTicket(ticket);
   const meta = readMeta(dir);
   const result = JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8'));
   const shotsDir = join(dir, 'screenshots');
@@ -326,19 +329,13 @@ function hiddenPrompt(question: string): Promise<string> {
   const stdin = process.stdin;
   process.stderr.write(question);
   if (!stdin.isTTY) {
-    return new Promise((resolve) => {
-      let buf = '';
-      const onData = (c: string) => {
-        buf += c;
-        const nl = buf.indexOf('\n');
-        if (nl >= 0) {
-          stdin.off('data', onData);
-          stdin.pause();
-          resolve(buf.slice(0, nl).replace(/\r$/, ''));
-        }
-      };
-      stdin.setEncoding('utf8').on('data', onData).resume();
-    });
+    // A pipe would show the password to whatever wrote it, and could not hide the typing.
+    process.stderr.write('\n');
+    return Promise.reject(
+      new Error(
+        'set-secret braucht ein Terminal: bitte im eigenen Terminal-Fenster ausführen. Nichts gespeichert.',
+      ),
+    );
   }
   return new Promise((resolve, reject) => {
     let value = '';
@@ -346,7 +343,12 @@ function hiddenPrompt(question: string): Promise<string> {
       stdin.setRawMode(false);
       stdin.pause();
       stdin.off('data', onData);
+      stdin.off('end', onEnd);
       process.stderr.write('\n');
+    };
+    const onEnd = () => {
+      done();
+      reject(new Error('Eingabe beendet. Nichts gespeichert.'));
     };
     const onData = (chunk: string) => {
       for (const ch of chunk) {
@@ -365,7 +367,7 @@ function hiddenPrompt(question: string): Promise<string> {
       }
     };
     stdin.setRawMode(true);
-    stdin.setEncoding('utf8').on('data', onData).resume();
+    stdin.setEncoding('utf8').on('data', onData).on('end', onEnd).resume();
   });
 }
 
@@ -386,7 +388,17 @@ export function realDeps(): CliDeps {
   };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+/** True when this file is the started script, also through a symlink (argv[1] is the path as typed). */
+function startedDirectly(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+}
+
+if (startedDirectly()) {
   main(process.argv.slice(2), realDeps()).then((code) => {
     process.exitCode = code;
   });

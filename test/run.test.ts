@@ -129,6 +129,36 @@ describe('runTests', () => {
     expect(spawned).toHaveLength(1);
   });
 
+  test('refuses when no test is found', async () => {
+    const h = home();
+    const { d, err, spawned } = deps(h.env, { listTests: async () => 0 });
+    const dir = prepare('ACME-1', 'd-acme-de--main.dating.staging.example.test', d);
+    expect(await runTests(dir, {}, d)).toBe(1);
+    expect(spawned).toEqual([]);
+    expect(err.join('\n')).toContain('Keine Tests');
+  });
+
+  test('stops the SDK when a test reports an environment that is not started', async () => {
+    const h = home();
+    let signal: AbortSignal | undefined;
+    const { d, err } = deps(h.env, {
+      spawn: (_c, _a, opts, onStdout) => {
+        signal = opts.signal;
+        onStdout(
+          '  1) [iPhone 16] ACME-1 › start\n    UmgebungNichtGestartet: Umgebung nicht gestartet: d-acme-de--main.dating.staging.example.test zeigt nicht die App.\n',
+        );
+        return new Promise((resolve) => {
+          if (opts.signal?.aborted) resolve(143);
+          opts.signal?.addEventListener('abort', () => resolve(143));
+        });
+      },
+    });
+    const dir = prepare('ACME-1', 'd-acme-de--main.dating.staging.example.test', d);
+    expect(await runTests(dir, {}, d)).not.toBe(0);
+    expect(signal?.aborted).toBe(true);
+    expect(err.join('\n')).toContain('abgebrochen');
+  });
+
   test('runs the SDK with the run context in env, credentials neither in argv nor env', async () => {
     const h = home();
     const { d, spawned, out } = deps(h.env);

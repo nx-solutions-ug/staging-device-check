@@ -96,7 +96,7 @@ export function renderStand(
   const label = host.split('.')[0];
   const day = `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}`;
   const lines = [
-    `**Gerätetest ${day} – ${label}, ${devices.join(', ')}**`,
+    `**Gerätetest ${day} – ${[label, ...devices].join(', ')}**`,
     '',
     '| Prüfung | iPhone | Android | Hinweis |',
     '|---|---|---|---|',

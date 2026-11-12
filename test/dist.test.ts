@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -23,6 +23,42 @@ describe('bundled cli', () => {
       expect(r.stderr).not.toContain('Dynamic require');
       expect(r.stderr).toContain('Befehle:');
       expect(r.status).toBe(64);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  const run = (args: string[], home: string, input = '') =>
+    spawnSync('node', args, {
+      encoding: 'utf8',
+      input,
+      env: {
+        PATH: process.env.PATH,
+        HOME: home,
+        XDG_CONFIG_HOME: join(home, 'c'),
+        XDG_DATA_HOME: join(home, 'd'),
+      },
+      timeout: 10_000,
+    });
+
+  test('runs when started through a symlink', () => {
+    const home = mkdtempSync(join(tmpdir(), 'sdc-dist-'));
+    try {
+      symlinkSync(CLI, join(home, 'link.js'));
+      const r = run([join(home, 'link.js'), 'nope'], home);
+      expect(r.stderr).toContain('Befehle:');
+      expect(r.status).toBe(64);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('set-secret refuses input that does not come from a terminal', () => {
+    const home = mkdtempSync(join(tmpdir(), 'sdc-dist-'));
+    try {
+      const r = run([CLI, 'set-secret'], home, 'aaaaaaaaaaaaaaaa\nbbbbbbbbbbbbbbbb\n');
+      expect(r.stderr).toContain('Terminal');
+      expect(r.status).toBe(1);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

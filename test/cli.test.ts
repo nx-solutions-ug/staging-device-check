@@ -250,6 +250,7 @@ describe('prepare, run and report through the CLI', () => {
       }),
     );
     const { d, out } = deps(h.env);
+    expect(await main(['report', dir, 'acme'], d)).toBe(1);
     expect(await main(['report', dir, 'ACME-1'], d)).toBe(0);
     const md = readFileSync(join(dir, 'stand-abschnitt.md'), 'utf8');
     expect(md).toBe(readFileSync(new URL('./fixtures/report/stand.md', import.meta.url), 'utf8'));

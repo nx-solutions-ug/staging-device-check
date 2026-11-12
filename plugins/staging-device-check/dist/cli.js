@@ -7374,6 +7374,7 @@ import {
   mkdirSync as mkdirSync4,
   readdirSync as readdirSync2,
   readFileSync as readFileSync5,
+  realpathSync,
   rmSync as rmSync4,
   writeFileSync as writeFileSync4
 } from "fs";
@@ -7841,7 +7842,7 @@ function renderStand(r, ticket, host, devices, date) {
   const label = host.split(".")[0];
   const day = `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}`;
   const lines = [
-    `**Ger\xE4tetest ${day} \u2013 ${label}, ${devices.join(", ")}**`,
+    `**Ger\xE4tetest ${day} \u2013 ${[label, ...devices].join(", ")}**`,
     "",
     "| Pr\xFCfung | iPhone | Android | Hinweis |",
     "|---|---|---|---|"
@@ -8091,6 +8092,7 @@ function cleanRunFolder(dir, secrets) {
   };
   walk(dir);
 }
+var NOT_STARTED = /UmgebungNichtGestartet|Umgebung nicht gestartet/;
 var minutesText = (m) => `${Math.round(m * 10) / 10}`.replace(".", ",");
 async function runTests(dir, opts, d) {
   const meta = readMeta(dir);
@@ -8113,6 +8115,10 @@ async function runTests(dir, opts, d) {
   const redact = redactor(secrets);
   const devices = opts.devices?.length ? opts.devices : ["iphone", "android"];
   const tests = await d.listTests(dir);
+  if (!Number.isFinite(tests) || tests < 1) {
+    d.err("Keine Tests im Run-Ordner gefunden \u2014 zuerst eine *.spec.ts anlegen.");
+    return 1;
+  }
   const estimate = tests * devices.length * MINUTES_PER_TEST;
   const used = await usedMinutes(user, key, d.fetchFn);
   const remaining = used === null ? null : config.planMinutes - used;
@@ -8148,8 +8154,13 @@ async function runTests(dir, opts, d) {
       `${JSON.stringify({ ...meta, devices: chosen }, null, 2)}
 `
     );
-    const out = redactingStream(d.out, redact);
-    const err = redactingStream(d.err, redact);
+    const stop = new AbortController();
+    const watch = (write) => (line) => {
+      if (NOT_STARTED.test(line)) stop.abort();
+      write(line);
+    };
+    const out = redactingStream(watch(d.out), redact);
+    const err = redactingStream(watch(d.err), redact);
     code = await d.spawn(
       join5(dir, "node_modules", ".bin", "browserstack-node-sdk"),
       ["playwright", "test"],
@@ -8163,13 +8174,20 @@ async function runTests(dir, opts, d) {
           SDC_RUN_DIR: dir,
           SDC_TICKET: meta.ticket,
           SDC_MAILBOX: opts.mailbox ?? "shared"
-        }
+        },
+        signal: stop.signal
       },
       out.push,
       err.push
     );
     out.end();
     err.end();
+    if (stop.signal.aborted) {
+      d.err(
+        `Lauf abgebrochen: ${meta.host} zeigt nicht die App (Umgebung nicht gestartet). Die \xFCbrigen Tests wurden nicht gestartet.`
+      );
+      if (code === 0) code = 1;
+    }
   } finally {
     cleanRunFolder(dir, secrets);
   }
@@ -8185,11 +8203,13 @@ var realSpawn = (cmd, args, opts, onStdout, onStderr) => new Promise((resolve2) 
   const child = nodeSpawn(cmd, args, {
     cwd: opts.cwd,
     env: opts.env,
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
+    signal: opts.signal
   });
   child.stdout.setEncoding("utf8").on("data", onStdout);
   child.stderr.setEncoding("utf8").on("data", onStderr);
   child.on("error", (e) => {
+    if (e.name === "AbortError") return;
     onStderr(`${e.message}
 `);
     resolve2(127);
@@ -8387,6 +8407,7 @@ async function localState(d) {
   return 0;
 }
 function report(dir, ticket, d) {
+  validateTicket(ticket);
   const meta = readMeta(dir);
   const result = JSON.parse(readFileSync5(join6(dir, "result.json"), "utf8"));
   const shotsDir = join6(dir, "screenshots");
@@ -8465,19 +8486,12 @@ function hiddenPrompt(question) {
   const stdin = process.stdin;
   process.stderr.write(question);
   if (!stdin.isTTY) {
-    return new Promise((resolve2) => {
-      let buf = "";
-      const onData = (c) => {
-        buf += c;
-        const nl = buf.indexOf("\n");
-        if (nl >= 0) {
-          stdin.off("data", onData);
-          stdin.pause();
-          resolve2(buf.slice(0, nl).replace(/\r$/, ""));
-        }
-      };
-      stdin.setEncoding("utf8").on("data", onData).resume();
-    });
+    process.stderr.write("\n");
+    return Promise.reject(
+      new Error(
+        "set-secret braucht ein Terminal: bitte im eigenen Terminal-Fenster ausf\xFChren. Nichts gespeichert."
+      )
+    );
   }
   return new Promise((resolve2, reject) => {
     let value = "";
@@ -8485,7 +8499,12 @@ function hiddenPrompt(question) {
       stdin.setRawMode(false);
       stdin.pause();
       stdin.off("data", onData);
+      stdin.off("end", onEnd);
       process.stderr.write("\n");
+    };
+    const onEnd = () => {
+      done();
+      reject(new Error("Eingabe beendet. Nichts gespeichert."));
     };
     const onData = (chunk) => {
       for (const ch of chunk) {
@@ -8504,7 +8523,7 @@ function hiddenPrompt(question) {
       }
     };
     stdin.setRawMode(true);
-    stdin.setEncoding("utf8").on("data", onData).resume();
+    stdin.setEncoding("utf8").on("data", onData).on("end", onEnd).resume();
   });
 }
 function realDeps() {
@@ -8525,7 +8544,15 @@ function realDeps() {
     nodeVersion: process.versions.node
   };
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+function startedDirectly() {
+  if (!process.argv[1]) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+}
+if (startedDirectly()) {
   main(process.argv.slice(2), realDeps()).then((code) => {
     process.exitCode = code;
   });

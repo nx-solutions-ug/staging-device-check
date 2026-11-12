@@ -39,7 +39,7 @@ export type RunDeps = {
   spawn: (
     cmd: string,
     args: string[],
-    opts: { cwd: string; env: NodeJS.ProcessEnv },
+    opts: { cwd: string; env: NodeJS.ProcessEnv; signal?: AbortSignal },
     onStdout: (chunk: string) => void,
     onStderr: (chunk: string) => void,
   ) => Promise<number>;
@@ -179,6 +179,8 @@ export function cleanRunFolder(dir: string, secrets: string[]): void {
   walk(dir);
 }
 
+const NOT_STARTED = /UmgebungNichtGestartet|Umgebung nicht gestartet/;
+
 const minutesText = (m: number) => `${Math.round(m * 10) / 10}`.replace('.', ',');
 
 export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promise<number> {
@@ -203,6 +205,10 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
 
   const devices = opts.devices?.length ? opts.devices : (['iphone', 'android'] as Device[]);
   const tests = await d.listTests(dir);
+  if (!Number.isFinite(tests) || tests < 1) {
+    d.err('Keine Tests im Run-Ordner gefunden — zuerst eine *.spec.ts anlegen.');
+    return 1;
+  }
   const estimate = tests * devices.length * MINUTES_PER_TEST;
   const used = await usedMinutes(user, key, d.fetchFn);
   const remaining = used === null ? null : config.planMinutes - used;
@@ -242,8 +248,15 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
       join(dir, 'run.json'),
       `${JSON.stringify({ ...meta, devices: chosen }, null, 2)}\n`,
     );
-    const out = redactingStream(d.out, redact);
-    const err = redactingStream(d.err, redact);
+    // The harness throws UmgebungNichtGestartet on the first test; the remaining tests would open device sessions
+    // against a host that shows no app, so the SDK is stopped right there.
+    const stop = new AbortController();
+    const watch = (write: (line: string) => void) => (line: string) => {
+      if (NOT_STARTED.test(line)) stop.abort();
+      write(line);
+    };
+    const out = redactingStream(watch(d.out), redact);
+    const err = redactingStream(watch(d.err), redact);
     code = await d.spawn(
       join(dir, 'node_modules', '.bin', 'browserstack-node-sdk'),
       ['playwright', 'test'],
@@ -258,12 +271,19 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
           SDC_TICKET: meta.ticket,
           SDC_MAILBOX: opts.mailbox ?? 'shared',
         },
+        signal: stop.signal,
       },
       out.push,
       err.push,
     );
     out.end();
     err.end();
+    if (stop.signal.aborted) {
+      d.err(
+        `Lauf abgebrochen: ${meta.host} zeigt nicht die App (Umgebung nicht gestartet). Die übrigen Tests wurden nicht gestartet.`,
+      );
+      if (code === 0) code = 1;
+    }
   } finally {
     cleanRunFolder(dir, secrets);
   }
@@ -283,10 +303,12 @@ export const realSpawn: RunDeps['spawn'] = (cmd, args, opts, onStdout, onStderr)
       cwd: opts.cwd,
       env: opts.env,
       stdio: ['ignore', 'pipe', 'pipe'],
+      signal: opts.signal,
     });
     child.stdout.setEncoding('utf8').on('data', onStdout);
     child.stderr.setEncoding('utf8').on('data', onStderr);
     child.on('error', (e) => {
+      if (e.name === 'AbortError') return; // stopped on purpose; 'close' follows
       onStderr(`${e.message}\n`);
       resolve(127);
     });

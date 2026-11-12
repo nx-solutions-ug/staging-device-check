@@ -53,6 +53,12 @@ describe('renderStand', () => {
     );
   });
 
+  test('heading without devices has no trailing separator', () => {
+    const r = parseResult(JSON.parse(fixture('result.json')), SHOTS);
+    const first = renderStand(r, 'ACME-1', HOST, [], DATE).split('\n')[0];
+    expect(first).toMatch(/^\*\*Gerätetest 12\.11\.2026 – [^,]+\*\*$/);
+  });
+
   test('no screenshots and no signed URLs', () => {
     const r = parseResult(JSON.parse(fixture('result.json')), []);
     const md = renderStand(r, 'ACME-1', HOST, ['iPhone 16'], DATE);
