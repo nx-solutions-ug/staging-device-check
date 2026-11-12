@@ -1,3 +1,17 @@
+# [1.1.0](https://github.com/nx-solutions-ug/staging-device-check/compare/v1.0.0...v1.1.0) (2026-11-12)
+
+
+### Bug Fixes
+
+* **dialog:** a time limit for every dialog, and no GUI on a Mac means the terminal path ([7570989](https://github.com/nx-solutions-ug/staging-device-check/commit/7570989d9768e929de3f5fa41b132e6d2e94e5a5))
+* **doctor:** a missing password points to the setup dialog ([fbcea25](https://github.com/nx-solutions-ug/staging-device-check/commit/fbcea255218cd5a72e7884baf22b8575eab0c786))
+* the launcher keeps the Node copy at the pinned version ([cd7fe22](https://github.com/nx-solutions-ug/staging-device-check/commit/cd7fe221d260bfd212c7f145286552ef9251bc31))
+
+
+### Features
+
+* the plugin brings its own Node and asks for the password in a native dialog ([61a4081](https://github.com/nx-solutions-ug/staging-device-check/commit/61a4081ff6946434332242347bc0d52c19527a25))
+
 # 1.0.0 (2026-11-12)
 
 

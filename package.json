@@ -1,6 +1,6 @@
 {
   "name": "staging-device-check",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Claude Code plugin: Lässt Claude ein Jira-Ticket auf echten Handys über BrowserStack gegen Staging testen.",
   "license": "MIT",
