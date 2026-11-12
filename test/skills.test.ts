@@ -89,6 +89,10 @@ describe('skills', () => {
     // the example asserts concrete rule outcomes, not just "not failed"
     expect(md).not.toContain(".not.toBe('nicht bestanden')");
   });
+
+  test('tests-e2e says a real failure wins over nicht prüfbar hier', () => {
+    expect(read('skills', 'tests-e2e', 'SKILL.md')).toMatch(/real failure wins/);
+  });
 });
 
 describe('.mcp.json', () => {

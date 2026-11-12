@@ -46,6 +46,18 @@ test('Konto D (mann)', async () => {
   });
 });
 
+test('Konto E (frau)', async () => {
+  await check('Text falsch und Tastatur', async () => {
+    expect.soft('Wohnort', 'Überschrift').toBe('Stadt');
+    const r = noteLayout([{ rule: 'R4', outcome: 'nicht prüfbar hier', detail: 'Auf iOS öffnet Playwright keine Bildschirmtastatur.' }]);
+    expect.soft(r.find((x) => x.rule === 'R4')?.outcome).toBe('bestanden');
+  });
+  await check('Fehler und leeres Layout', async () => {
+    noteLayout([]);
+    throw new Error('Feld nicht gefunden');
+  });
+});
+
 test('Konto C (frau)', async () => {
   test.info().annotations.push({ type: 'zu prüfen', description: 'Gibt es nicht: ACME-1_y.png' });
   await check('Echt', async () => {});
@@ -132,6 +144,23 @@ describe('check() with real Playwright, read by report', () => {
     // on Android the concrete rule assertion decides
     expect(row('Konto D (mann): Tastatur ohne Option', 'Android')?.outcome).toBe('nicht bestanden');
     expect(row('Konto D (mann): Leeres Layout', 'Android')?.outcome).toBe('nicht bestanden');
+  });
+
+  test('a real failure wins over nicht prüfbar hier', () => {
+    for (const device of ['iPhone', 'Android']) {
+      expect(row('Konto E (frau): Text falsch und Tastatur', device)?.outcome).toBe(
+        'nicht bestanden',
+      );
+      expect(row('Konto E (frau): Text falsch und Tastatur', device)?.note).toContain(
+        'Überschrift',
+      );
+      expect(row('Konto E (frau): Fehler und leeres Layout', device)?.outcome).toBe(
+        'nicht bestanden',
+      );
+      expect(row('Konto E (frau): Fehler und leeres Layout', device)?.note).toContain(
+        'Feld nicht gefunden',
+      );
+    }
   });
 
   test('the layout fixture hands every result to check()', () => {

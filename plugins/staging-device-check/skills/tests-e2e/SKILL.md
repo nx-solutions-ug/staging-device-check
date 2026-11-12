@@ -119,7 +119,8 @@ Rules for the spec:
   outcome** of the rules the check is about (`toBe('bestanden')` for each named rule), never just "not failed": a
   rule that was not measured must not count as a pass.
 - `check()` fails closed on iOS: when `layout()` inside it measured nothing or returned "nicht prüfbar hier", the
-  check is "nicht prüfbar hier" there, even without `{ keyboard: true }`.
+  check is "nicht prüfbar hier" there, even without `{ keyboard: true }`. A real failure wins: any other failed
+  assertion in the same check (a missing element, a wrong text) makes it "nicht bestanden".
 - Navigate with `staging.goto(path)`; it refuses other hosts. Never set cookies yourself.
 - Map the status table: every `✅ da` row → a check; every `⚠️ abweichend` row → a check against the described
   deviation, not the original ticket text; `✖` rows → only listed as "nicht in diesem Ticket", no check.

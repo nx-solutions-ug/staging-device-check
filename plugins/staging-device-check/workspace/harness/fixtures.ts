@@ -190,6 +190,14 @@ export type CheckOptions = {
 
 const IOS = /iphone|ipad|ios/i; // the same device rule as the report's iPhone column
 
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
+
+/** A failed `toBe('bestanden')` on a rule that came back "nicht prüfbar hier" or was not measured at all. */
+const aboutUnmeasuredRule = (message: string): boolean => {
+  const m = message.replace(ANSI, '');
+  return /Expected: "bestanden"/.test(m) && /Received: (undefined|"nicht prüfbar hier")/.test(m);
+};
+
 /**
  * One check of the ticket = one `test.step` with this title, which becomes the row of the result section. The title
  * and every annotation about it live here, so they cannot diverge. Assert with `expect.soft` inside, so a failing
@@ -210,6 +218,7 @@ export async function check(
       step.skip(); // ends only this check's body; the persona's other checks still run
     }
     const end = beginCheck();
+    const errorsBefore = info.errors.length;
     let failure: unknown = null;
     try {
       await body({
@@ -225,9 +234,14 @@ export async function check(
     } catch (e) {
       failure = e;
     }
-    // fail closed: what layout() could not measure on iOS is never a pass, whatever the spec asserted
+    // fail closed: what layout() could not measure on iOS is never a pass, whatever the spec asserted. A real
+    // failure wins, though: only a check whose every failed assertion is about an unmeasured rule is not checkable.
     const reason = unmeasured(end());
-    if (ios && reason) notHere(reason);
+    const failed = [
+      ...info.errors.slice(errorsBefore).map((e) => e.message ?? ''),
+      ...(failure ? [failure instanceof Error ? failure.message : String(failure)] : []),
+    ];
+    if (ios && reason && failed.every(aboutUnmeasuredRule)) notHere(reason);
     if (failure) throw failure;
   });
 }
