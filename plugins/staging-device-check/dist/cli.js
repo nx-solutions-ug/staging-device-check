@@ -23715,7 +23715,8 @@ async function localState(d) {
 function report(dir, ticket, d) {
   validateTicket(ticket);
   const meta = readMeta(dir);
-  const result = JSON.parse(readFileSync5(join6(dir, "result.json"), "utf8"));
+  const resultFile = join6(dir, "result.json");
+  const result = !existsSync5(resultFile) && meta.aborted && meta.plan ? { suites: [] } : JSON.parse(readFileSync5(resultFile, "utf8"));
   const shotsDir = join6(dir, "screenshots");
   const shots = existsSync5(shotsDir) ? readdirSync2(shotsDir).filter((f) => f.endsWith(".png")) : [];
   const parsed = parseResult(

@@ -66,6 +66,8 @@ what produces each:
 | **nicht prüfbar hier** | `check(…, { keyboard: true })` on the iPhone, or a persona the harness skipped as a whole (demo mailbox). Only that check's row; the persona's other checks still run                                                                                                                                                                                                                      |
 | **abgebrochen**        | Only after a run stopped before its end (`run.json` `aborted`: "Strg+C", "Umgebung nicht gestartet", or "sofort beendet" after a hard stop; or "Test unterbrochen" when a test was interrupted): the check that was running and every planned check after it. A test that had already ended with a real failure keeps it. The first line then ends "– abgebrochen (<Grund>)". Never a pass |
 
+After a hard stop that left no `result.json`, `report` still writes the section from `run.json` alone: the first line ends "– abgebrochen (sofort beendet)" and every planned check reads "abgebrochen".
+
 Internal errors of the device service (its local socket or gRPC connection, for example `14 UNAVAILABLE … sdk-platform-….sock`) never appear in a row: the note says "interner Fehler des Gerätedienstes (Details im Log)", and `report` prints the original text to stderr.
 
 `check()` writes its notes as test annotations whose description starts with the check's title (`<Prüfung>: <rest>`),

@@ -21,7 +21,7 @@ import { loadConfig, type Config } from './config.js';
 import { GateError, gateLogin, mintRunToken } from './gate.js';
 import { appHost } from './hosts.js';
 import { stateDir } from './paths.js';
-import { parseResult, renderStand } from './report.js';
+import { parseResult, renderStand, type PlaywrightReport } from './report.js';
 import {
   prepare,
   readMeta,
@@ -363,7 +363,13 @@ async function localState(d: CliDeps): Promise<number> {
 function report(dir: string, ticket: string, d: CliDeps): number {
   validateTicket(ticket);
   const meta = readMeta(dir);
-  const result = JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8'));
+  const resultFile = join(dir, 'result.json');
+  // a hard stop (second Ctrl+C, hang-up, SIGKILL) can end the run before Playwright writes its report: then every
+  // planned check is "abgebrochen", from run.json's plan and mark alone
+  const result: PlaywrightReport =
+    !existsSync(resultFile) && meta.aborted && meta.plan
+      ? { suites: [] }
+      : JSON.parse(readFileSync(resultFile, 'utf8'));
   const shotsDir = join(dir, 'screenshots');
   const shots = existsSync(shotsDir) ? readdirSync(shotsDir).filter((f) => f.endsWith('.png')) : [];
   const parsed = parseResult(
