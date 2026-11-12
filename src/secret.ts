@@ -80,7 +80,8 @@ export function writeGatePassword(
   value: string,
   d: SecretDeps = realSecretDeps(),
 ): 'keychain' | 'file' {
-  if (!value || /[\r\n\0]/.test(value)) throw new Error('gate password must be one non-empty line');
+  if (!value || /[\r\n\0]/.test(value))
+    throw new Error('Das Staging-Passwort muss eine nicht leere Zeile ohne Zeilenumbruch sein.');
   const file = secretFilePath(d.env);
   if (keychainWrite(value, d) && keychainRead(d) === value) {
     rmSync(file, { force: true });
@@ -94,7 +95,7 @@ export function writeGatePassword(
   chmodSync(file, 0o600);
   if (readGatePassword(d) !== value) {
     throw new Error(
-      'gate password saved to the file, but an older keychain entry could not be removed and would be read instead',
+      'Das Staging-Passwort liegt jetzt in der Datei, aber ein alter Eintrag im Schlüsselbund ließ sich nicht entfernen und würde stattdessen gelesen. Bitte den Eintrag „staging-device-check“ im Schlüsselbund löschen und noch einmal speichern.',
     );
   }
   return 'file';

@@ -12,3 +12,12 @@ export function dataDir(env: NodeJS.ProcessEnv = process.env): string {
   const base = env.XDG_CONFIG_HOME || join(env.HOME || homedir(), '.config');
   return join(base, PLUGIN);
 }
+
+/**
+ * Workspace, gate storage state and other run state: `${XDG_DATA_HOME:-~/.local/share}/staging-device-check`.
+ * Same rule as dataDir: fixed, never CLAUDE_PLUGIN_DATA.
+ */
+export function stateDir(env: NodeJS.ProcessEnv = process.env): string {
+  const base = env.XDG_DATA_HOME || join(env.HOME || homedir(), '.local', 'share');
+  return join(base, PLUGIN);
+}

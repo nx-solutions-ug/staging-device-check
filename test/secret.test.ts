@@ -136,17 +136,17 @@ describe('gate password store', () => {
   test('throws when an old keychain entry can neither be replaced nor removed', () => {
     const { d, store } = deps('darwin', 'stuck');
     store.set('k', 'old-password');
-    expect(() => writeGatePassword('new-password', d)).toThrow('older keychain entry');
+    expect(() => writeGatePassword('new-password', d)).toThrow('Schlüsselbund');
   });
 
   test('no password anywhere reads as null', () => {
     expect(readGatePassword(deps('darwin', 'missing').d)).toBeNull();
   });
 
-  test('rejects an empty value and line breaks', () => {
+  test('rejects an empty value and line breaks, in German', () => {
     const { d } = deps('darwin', 'works');
-    expect(() => writeGatePassword('', d)).toThrow();
-    expect(() => writeGatePassword('a\nb', d)).toThrow();
+    expect(() => writeGatePassword('', d)).toThrow('Passwort');
+    expect(() => writeGatePassword('a\nb', d)).toThrow('Passwort');
   });
 
   test('the fallback file sits next to the settings', () => {

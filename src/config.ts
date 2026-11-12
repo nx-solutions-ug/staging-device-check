@@ -29,16 +29,19 @@ export type Config = {
   perRunMinutes: number;
   warnBelowMinutes: number;
   tokenMinutes: number;
+  /** BrowserStack minutes of the plan (the API reports none); remaining = planMinutes − used, an estimate */
+  planMinutes: number;
 };
 
 export const defaults: Pick<
   Config,
-  'standMarker' | 'perRunMinutes' | 'warnBelowMinutes' | 'tokenMinutes'
+  'standMarker' | 'perRunMinutes' | 'warnBelowMinutes' | 'tokenMinutes' | 'planMinutes'
 > = {
   standMarker: 'Stand',
   perRunMinutes: 6,
   warnBelowMinutes: 20,
   tokenMinutes: 20,
+  planMinutes: 100,
 };
 
 export const configPath = (env: NodeJS.ProcessEnv = process.env): string =>
@@ -46,10 +49,23 @@ export const configPath = (env: NodeJS.ProcessEnv = process.env): string =>
 
 const isString = (v: unknown): v is string => typeof v === 'string';
 
-/** Throws on the first field that does not fit; the message names the field. */
+const isHttpsUrl = (v: string): boolean => {
+  try {
+    return new URL(v).protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+/** Throws on the first field that does not fit; the German message names the field. */
 function validate(c: Config): Config {
   for (const k of ['apex', 'hostPattern', 'browserstackYml', 'jiraSite', 'standMarker'] as const) {
-    if (!isString(c[k])) throw new Error(`config: ${k} must be a string`);
+    if (!isString(c[k])) throw new Error(`Einstellungen: ${k} muss ein Text sein.`);
+  }
+  if (!isHttpsUrl(c.apex)) {
+    throw new Error(
+      `Einstellungen: apex muss eine https-Adresse sein (z. B. https://staging.example.test), nicht „${c.apex}“.`,
+    );
   }
   if (
     !c.projects ||
@@ -57,22 +73,28 @@ function validate(c: Config): Config {
     Array.isArray(c.projects) ||
     !Object.values(c.projects).every(isString)
   ) {
-    throw new Error('config: projects must map display names to labels');
+    throw new Error('Einstellungen: projects muss Anzeigenamen auf Labels abbilden.');
   }
-  if (!Array.isArray(c.accounts)) throw new Error('config: accounts must be a list');
+  if (!Array.isArray(c.accounts)) throw new Error('Einstellungen: accounts muss eine Liste sein.');
   for (const a of c.accounts) {
     for (const k of ['label', 'email', 'persona', 'project'] as const) {
-      if (!isString(a?.[k])) throw new Error(`config: account ${k} must be a string`);
+      if (!isString(a?.[k]))
+        throw new Error(`Einstellungen: Testkonto-Feld ${k} muss ein Text sein.`);
     }
     if (a.login !== 'quick' && a.login !== 'code')
-      throw new Error(`config: account login must be quick or code (${a.label})`);
+      throw new Error(
+        `Einstellungen: login eines Testkontos muss quick oder code sein (${a.label}).`,
+      );
   }
   if (!Number.isInteger(c.tokenMinutes) || c.tokenMinutes < 1 || c.tokenMinutes > 120) {
-    throw new Error('config: tokenMinutes must be a whole number from 1 to 120');
+    throw new Error('Einstellungen: tokenMinutes muss eine ganze Zahl von 1 bis 120 sein.');
   }
   for (const k of ['perRunMinutes', 'warnBelowMinutes'] as const) {
     if (typeof c[k] !== 'number' || !Number.isFinite(c[k]) || c[k] < 0)
-      throw new Error(`config: ${k} must be a number >= 0`);
+      throw new Error(`Einstellungen: ${k} muss eine Zahl ≥ 0 sein.`);
+  }
+  if (typeof c.planMinutes !== 'number' || !Number.isFinite(c.planMinutes) || c.planMinutes <= 0) {
+    throw new Error('Einstellungen: planMinutes muss eine Zahl > 0 sein.');
   }
   return c;
 }

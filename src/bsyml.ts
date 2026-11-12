@@ -185,3 +185,50 @@ export async function remainingMinutes(
     return null;
   }
 }
+
+/**
+ * Minutes used on the BrowserStack account, summed from the session durations (seconds) of every build:
+ * `GET /automate/builds.json` and `GET /automate/builds/<hashed_id>/sessions.json`, both paged with `limit` (max 100)
+ * and `offset`. The plan API reports no minutes, so `planMinutes − usedMinutes` is an estimate ("geschätzt"):
+ * sessions older than the API keeps, or deleted builds, are missing. Null on any API error.
+ */
+export async function usedMinutes(
+  user: string,
+  key: string,
+  fetchFn: typeof fetch = fetch,
+): Promise<number | null> {
+  const headers = {
+    authorization: `Basic ${Buffer.from(`${user}:${key}`).toString('base64')}`,
+    accept: 'application/json',
+  };
+  const pages = async <T>(path: string): Promise<T[]> => {
+    const out: T[] = [];
+    for (let offset = 0; ; offset += 100) {
+      const r = await fetchFn(`https://api.browserstack.com${path}?limit=100&offset=${offset}`, {
+        headers,
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const page = (await r.json()) as T[];
+      if (!Array.isArray(page)) throw new Error('kein Array');
+      out.push(...page);
+      if (page.length < 100) return out;
+    }
+  };
+  try {
+    let seconds = 0;
+    const builds = await pages<{ automation_build?: { hashed_id?: string } }>(
+      '/automate/builds.json',
+    );
+    for (const b of builds) {
+      const id = b.automation_build?.hashed_id;
+      if (!id) continue;
+      const sessions = await pages<{ automation_session?: { duration?: number | null } }>(
+        `/automate/builds/${encodeURIComponent(id)}/sessions.json`,
+      );
+      for (const s of sessions) seconds += Number(s.automation_session?.duration) || 0;
+    }
+    return Math.round((seconds / 60) * 10) / 10;
+  } catch {
+    return null;
+  }
+}

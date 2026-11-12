@@ -24,31 +24,50 @@ var defaults = {
   standMarker: "Stand",
   perRunMinutes: 6,
   warnBelowMinutes: 20,
-  tokenMinutes: 20
+  tokenMinutes: 20,
+  planMinutes: 100
 };
 var configPath = (env = process.env) => join2(dataDir(env), "config.json");
 var isString = (v) => typeof v === "string";
+var isHttpsUrl = (v) => {
+  try {
+    return new URL(v).protocol === "https:";
+  } catch {
+    return false;
+  }
+};
 function validate(c) {
   for (const k of ["apex", "hostPattern", "browserstackYml", "jiraSite", "standMarker"]) {
-    if (!isString(c[k])) throw new Error(`config: ${k} must be a string`);
+    if (!isString(c[k])) throw new Error(`Einstellungen: ${k} muss ein Text sein.`);
+  }
+  if (!isHttpsUrl(c.apex)) {
+    throw new Error(
+      `Einstellungen: apex muss eine https-Adresse sein (z. B. https://staging.example.test), nicht \u201E${c.apex}\u201C.`
+    );
   }
   if (!c.projects || typeof c.projects !== "object" || Array.isArray(c.projects) || !Object.values(c.projects).every(isString)) {
-    throw new Error("config: projects must map display names to labels");
+    throw new Error("Einstellungen: projects muss Anzeigenamen auf Labels abbilden.");
   }
-  if (!Array.isArray(c.accounts)) throw new Error("config: accounts must be a list");
+  if (!Array.isArray(c.accounts)) throw new Error("Einstellungen: accounts muss eine Liste sein.");
   for (const a of c.accounts) {
     for (const k of ["label", "email", "persona", "project"]) {
-      if (!isString(a?.[k])) throw new Error(`config: account ${k} must be a string`);
+      if (!isString(a?.[k]))
+        throw new Error(`Einstellungen: Testkonto-Feld ${k} muss ein Text sein.`);
     }
     if (a.login !== "quick" && a.login !== "code")
-      throw new Error(`config: account login must be quick or code (${a.label})`);
+      throw new Error(
+        `Einstellungen: login eines Testkontos muss quick oder code sein (${a.label}).`
+      );
   }
   if (!Number.isInteger(c.tokenMinutes) || c.tokenMinutes < 1 || c.tokenMinutes > 120) {
-    throw new Error("config: tokenMinutes must be a whole number from 1 to 120");
+    throw new Error("Einstellungen: tokenMinutes muss eine ganze Zahl von 1 bis 120 sein.");
   }
   for (const k of ["perRunMinutes", "warnBelowMinutes"]) {
     if (typeof c[k] !== "number" || !Number.isFinite(c[k]) || c[k] < 0)
-      throw new Error(`config: ${k} must be a number >= 0`);
+      throw new Error(`Einstellungen: ${k} muss eine Zahl \u2265 0 sein.`);
+  }
+  if (typeof c.planMinutes !== "number" || !Number.isFinite(c.planMinutes) || c.planMinutes <= 0) {
+    throw new Error("Einstellungen: planMinutes muss eine Zahl > 0 sein.");
   }
   return c;
 }
@@ -97,6 +116,20 @@ var GateError = class extends Error {
   kind;
 };
 var base = (apex) => apex.replace(/\/+$/, "");
+function checkApex(apex) {
+  let ok = false;
+  try {
+    ok = new URL(apex).protocol === "https:";
+  } catch {
+    ok = false;
+  }
+  if (!ok) {
+    throw new GateError(
+      "bad-host",
+      `Die Staging-Adresse \u201E${apex}\u201C ist keine https-Adresse (erwartet z. B. https://staging.example.test). Bitte im Setup korrigieren.`
+    );
+  }
+}
 var apexHostOf = (apex) => new URL(apex).host;
 async function post(url, form, fetchFn, extra = {}) {
   try {
@@ -122,6 +155,15 @@ var serverReason = async (r) => {
   }
 };
 function statusError(status, apex, host, reason) {
+  if (host === null && (status === 400 || status === 404)) {
+    return status === 400 ? new GateError(
+      "unexpected",
+      `Der Gate-Login am Staging-Server ${apexHostOf(apex)} wurde abgelehnt (HTTP 400). Staging-Adresse im Setup pr\xFCfen.`
+    ) : new GateError(
+      "not-deployed",
+      `Der Gate-Login ist unter ${apexHostOf(apex)} nicht zu finden (HTTP 404). Die Staging-Adresse im Setup ist vermutlich nicht die Hauptadresse.`
+    );
+  }
   switch (status) {
     case 401:
       return new GateError(
@@ -152,6 +194,7 @@ function statusError(status, apex, host, reason) {
 }
 var SAME_SITE = /* @__PURE__ */ new Set(["Lax", "Strict", "None"]);
 async function mintRunToken(apex, host, minutes, password, fetchFn = fetch) {
+  checkApex(apex);
   if (!Number.isInteger(minutes) || minutes < 1 || minutes > 120) {
     throw new GateError("bad-host", `Ein Run-Token gilt 1 bis 120 Minuten, nicht ${minutes}.`);
   }
@@ -205,6 +248,7 @@ function parseGateCookie(header, fallbackDomain) {
   return { name: "staging_gate", value, domain: attr.get("domain") || fallbackDomain, expires };
 }
 async function gateLogin(apex, password, fetchFn = fetch) {
+  checkApex(apex);
   const r = await post(`${base(apex)}/_gate/login`, { password, return_to: "/" }, fetchFn, {
     redirect: "manual"
   });
@@ -276,7 +320,8 @@ function redactor(secrets) {
       new URLSearchParams({ v: s }).toString().slice(2),
       b64,
       b64.replace(/=+$/, ""),
-      Buffer.from(s).toString("base64url")
+      Buffer.from(s).toString("base64url"),
+      JSON.stringify(s).slice(1, -1)
     ]) {
       if (f.length >= MIN_LENGTH) forms.add(f);
     }

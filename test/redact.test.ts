@@ -16,6 +16,13 @@ describe('redactor', () => {
     for (const f of forms) expect(r(`before ${f} after`)).toBe('before «geheim» after');
   });
 
+  test('masks the JSON-escaped form too', () => {
+    const tricky = 'invented "quoted" back\\slash';
+    const r = redactor([tricky]);
+    const json = JSON.stringify({ p: tricky });
+    expect(r(json)).toBe('{"p":"«geheim»"}');
+  });
+
   test('several secrets, the longer one first', () => {
     const r = redactor(['abcd', 'abcdefgh']);
     expect(r('x abcdefgh y abcd z')).toBe('x «geheim» y «geheim» z');

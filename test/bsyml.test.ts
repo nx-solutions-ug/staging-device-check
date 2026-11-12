@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { chmodSync, cpSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkYml, remainingMinutes } from '../src/bsyml.js';
+import { checkYml, remainingMinutes, usedMinutes } from '../src/bsyml.js';
 
 const FAKE_USER = 'fake-user-0001';
 const FAKE_KEY = 'fakeAccessKey000000000';
@@ -133,5 +133,41 @@ describe('remainingMinutes', () => {
     }) as unknown as typeof fetch;
     expect(await remainingMinutes(FAKE_USER, FAKE_KEY, r401)).toBeNull();
     expect(await remainingMinutes(FAKE_USER, FAKE_KEY, down)).toBeNull();
+  });
+});
+
+describe('usedMinutes', () => {
+  test('sums automation_session.duration (seconds) over every build and session page', async () => {
+    const builds = Array.from({ length: 101 }, (_, i) => ({
+      automation_build: { hashed_id: `b${i}` },
+    }));
+    const urls: string[] = [];
+    const fetchFn = (async (url: string | URL | Request, init: RequestInit = {}) => {
+      const u = new URL(String(url));
+      urls.push(u.pathname + u.search);
+      expect(new Headers(init.headers).get('authorization')).toBe(
+        `Basic ${Buffer.from(`${FAKE_USER}:${FAKE_KEY}`).toString('base64')}`,
+      );
+      const offset = Number(u.searchParams.get('offset') ?? 0);
+      if (u.pathname === '/automate/builds.json')
+        return Response.json(builds.slice(offset, offset + 100));
+      // every build has one session of 60 s, b0 has 150 sessions of 2 s
+      if (u.pathname === '/automate/builds/b0/sessions.json') {
+        const all = Array.from({ length: 150 }, () => ({ automation_session: { duration: 2 } }));
+        return Response.json(all.slice(offset, offset + 100));
+      }
+      return Response.json(offset === 0 ? [{ automation_session: { duration: 60 } }] : []);
+    }) as typeof fetch;
+    // 100 builds x 60 s + 150 x 2 s = 6300 s = 105 min
+    expect(await usedMinutes(FAKE_USER, FAKE_KEY, fetchFn)).toBe(105);
+    expect(urls[0]).toBe('/automate/builds.json?limit=100&offset=0');
+    expect(urls).toContain('/automate/builds.json?limit=100&offset=100');
+    expect(urls).toContain('/automate/builds/b0/sessions.json?limit=100&offset=100');
+  });
+
+  test('an API error is null, not zero', async () => {
+    const r401 = (async () =>
+      new Response('Unauthorized', { status: 401 })) as unknown as typeof fetch;
+    expect(await usedMinutes(FAKE_USER, FAKE_KEY, r401)).toBeNull();
   });
 });

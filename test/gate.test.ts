@@ -126,6 +126,19 @@ describe('mintRunToken', () => {
   });
 });
 
+describe('apex validation', () => {
+  test('a non-https apex is a German error, not a raw TypeError', async () => {
+    const { fn, calls } = mockFetch(() => json(200, tokenBody()));
+    for (const apex of ['staging.example.test', 'http://staging.example.test']) {
+      const e = await kindOf(mintRunToken(apex, HOST, 20, PASSWORD, fn));
+      expect(e.message).toMatch(/https/);
+      const g = await kindOf(gateLogin(apex, PASSWORD, fn));
+      expect(g.message).toMatch(/https/);
+    }
+    expect(calls).toHaveLength(0);
+  });
+});
+
 describe('gateLogin', () => {
   const setCookie =
     'staging_gate=invented-gate-cookie; expires=Thu, 19 Nov 2026 10:00:00 GMT; Max-Age=604800; path=/; domain=.staging.example.test; secure; httponly; samesite=lax';
@@ -150,6 +163,17 @@ describe('gateLogin', () => {
   test('401 is a wrong password', async () => {
     const { fn } = mockFetch(() => new Response('<html>', { status: 401 }));
     expect((await kindOf(gateLogin(APEX, PASSWORD, fn))).kind).toBe('wrong-password');
+  });
+
+  test('400 and 404 at the gate login have their own German texts', async () => {
+    const r400 = mockFetch(() => new Response('', { status: 400 }));
+    const e400 = await kindOf(gateLogin(APEX, PASSWORD, r400.fn));
+    expect(e400.message).toMatch(/Gate-Login/);
+    expect(e400.message).not.toContain('null');
+    const r404 = mockFetch(() => new Response('', { status: 404 }));
+    const e404 = await kindOf(gateLogin(APEX, PASSWORD, r404.fn));
+    expect(e404.message).toMatch(/Gate-Login/);
+    expect(e404.message).not.toMatch(/Run-Token/);
   });
 
   test('a response without the cookie is an error', async () => {

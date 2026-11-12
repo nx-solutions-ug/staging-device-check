@@ -18,7 +18,7 @@
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "type-check": "tsc --noEmit",
-    "check:dist": "bun run build && git diff --exit-code -- plugins/staging-device-check/dist plugins/staging-device-check/workspace/harness/lib.js"
+    "check:dist": "bun run build && git diff --exit-code -- plugins/staging-device-check/dist plugins/staging-device-check/workspace/harness/lib.js && test -z \"$(git ls-files --others --exclude-standard plugins/staging-device-check/dist)\""
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",

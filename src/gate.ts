@@ -37,6 +37,22 @@ export type RunToken = {
 export type GateCookie = { name: 'staging_gate'; value: string; domain: string; expires: number };
 
 const base = (apex: string) => apex.replace(/\/+$/, '');
+
+/** The apex must be an https URL; a German GateError instead of a raw TypeError from `new URL`. */
+function checkApex(apex: string): void {
+  let ok = false;
+  try {
+    ok = new URL(apex).protocol === 'https:';
+  } catch {
+    ok = false;
+  }
+  if (!ok) {
+    throw new GateError(
+      'bad-host',
+      `Die Staging-Adresse „${apex}“ ist keine https-Adresse (erwartet z. B. https://staging.example.test). Bitte im Setup korrigieren.`,
+    );
+  }
+}
 const apexHostOf = (apex: string) => new URL(apex).host;
 
 async function post(
@@ -70,6 +86,18 @@ const serverReason = async (r: Response): Promise<string> => {
 };
 
 function statusError(status: number, apex: string, host: string | null, reason: string): GateError {
+  if (host === null && (status === 400 || status === 404)) {
+    // the gate login (no app host involved)
+    return status === 400
+      ? new GateError(
+          'unexpected',
+          `Der Gate-Login am Staging-Server ${apexHostOf(apex)} wurde abgelehnt (HTTP 400). Staging-Adresse im Setup prüfen.`,
+        )
+      : new GateError(
+          'not-deployed',
+          `Der Gate-Login ist unter ${apexHostOf(apex)} nicht zu finden (HTTP 404). Die Staging-Adresse im Setup ist vermutlich nicht die Hauptadresse.`,
+        );
+  }
   switch (status) {
     case 401:
       return new GateError(
@@ -109,6 +137,7 @@ export async function mintRunToken(
   password: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<RunToken> {
+  checkApex(apex);
   if (!Number.isInteger(minutes) || minutes < 1 || minutes > 120) {
     throw new GateError('bad-host', `Ein Run-Token gilt 1 bis 120 Minuten, nicht ${minutes}.`);
   }
@@ -190,6 +219,7 @@ export async function gateLogin(
   password: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<GateCookie> {
+  checkApex(apex);
   const r = await post(`${base(apex)}/_gate/login`, { password, return_to: '/' }, fetchFn, {
     redirect: 'manual',
   });

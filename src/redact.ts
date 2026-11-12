@@ -5,7 +5,7 @@ const MIN_LENGTH = 4;
 
 /**
  * Masks each secret and the forms it takes in URLs, form bodies and headers: raw, `encodeURIComponent`,
- * form encoding (`+` for space), base64 and base64url. Longer forms are replaced first.
+ * form encoding (`+` for space), base64, base64url and the JSON-escaped form (`\"`, `\\\\`). Longer forms are replaced first.
  */
 export function redactor(secrets: string[]): (s: string) => string {
   const forms = new Set<string>();
@@ -19,6 +19,7 @@ export function redactor(secrets: string[]): (s: string) => string {
       b64,
       b64.replace(/=+$/, ''),
       Buffer.from(s).toString('base64url'),
+      JSON.stringify(s).slice(1, -1),
     ]) {
       if (f.length >= MIN_LENGTH) forms.add(f);
     }

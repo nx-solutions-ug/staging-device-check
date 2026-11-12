@@ -54,6 +54,7 @@ describe('settings file', () => {
       perRunMinutes: 6,
       warnBelowMinutes: 20,
       tokenMinutes: 20,
+      planMinutes: 100,
     });
   });
 
@@ -95,6 +96,18 @@ describe('settings file', () => {
     saveConfig(sample({ tokenMinutes: 120 }), env);
     writeFileSync(configPath(env), JSON.stringify(sample({ tokenMinutes: 500 })), { mode: 0o600 });
     expect(() => loadConfig(env)).toThrow('tokenMinutes');
+  });
+
+  test('rejects an apex that is not an https URL, in German', () => {
+    const env = { XDG_CONFIG_HOME: join(tempDir(), 'cfg') };
+    for (const apex of ['staging.example.test', 'http://staging.example.test', 'not a url']) {
+      expect(() => saveConfig(sample({ apex }), env)).toThrow('https');
+    }
+  });
+
+  test('rejects planMinutes that is not a positive number', () => {
+    const env = { XDG_CONFIG_HOME: join(tempDir(), 'cfg') };
+    expect(() => saveConfig(sample({ planMinutes: 0 }), env)).toThrow('planMinutes');
   });
 
   test('rejects an account whose login is neither quick nor code', () => {
