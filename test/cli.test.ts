@@ -219,6 +219,9 @@ describe('doctor', () => {
     const own = deps(h.env);
     await main(['doctor'], own.d);
     expect(own.out.join('\n')).toMatch(/^ok Node 26\.13\.1 \(eigene Kopie\)/m);
+    const stale = deps(h.env, { nodeVersion: '26.0.0' });
+    await main(['doctor'], stale.d);
+    expect(stale.out.join('\n')).toMatch(/^hinweis Node-Kopie — .*26\.13\.1/m);
     const system = deps(h.env, { nodeFrom: 'System-Node' });
     await main(['doctor'], system.d);
     expect(system.out.join('\n')).toMatch(/^hinweis Node-Kopie/m);

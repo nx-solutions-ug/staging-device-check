@@ -23475,6 +23475,21 @@ async function doctor(d, json) {
   const major = Number(d.nodeVersion.split(".")[0]);
   if (major >= 26) add("ok", `Node ${d.nodeVersion} (${d.nodeFrom})`);
   else add("fehlt", `Node ${d.nodeVersion}`, "Node 26 oder neuer wird gebraucht.");
+  const pinned = /^NODE_VERSION=(.+)$/m.exec(
+    (() => {
+      try {
+        return readFileSync5(join6(d.workspaceSource, "..", "scripts", "node.lock"), "utf8");
+      } catch {
+        return "";
+      }
+    })()
+  )?.[1];
+  if (d.nodeFrom === "eigene Kopie" && pinned && pinned !== d.nodeVersion)
+    add(
+      "hinweis",
+      "Node-Kopie",
+      `Die Node-Kopie ist ${d.nodeVersion}, das Plugin erwartet ${pinned} \u2014 Setup Schritt 1 aktualisiert sie.`
+    );
   if (d.nodeFrom !== "eigene Kopie")
     add(
       "hinweis",
