@@ -1,0 +1,99 @@
+{
+  "config": { "version": "1.62.1" },
+  "suites": [
+    {
+      "title": "tests-e2e.spec.ts",
+      "file": "tests-e2e.spec.ts",
+      "specs": [],
+      "suites": [
+        {
+          "title": "ACME-1",
+          "specs": [
+            {
+              "title": "Weiter-Knopf bleibt über der Tastatur sichtbar",
+              "tests": [
+                {
+                  "projectName": "iPhone 16",
+                  "annotations": [
+                    {
+                      "type": "nicht prüfbar hier",
+                      "description": "Auf iOS öffnet Playwright keine Bildschirmtastatur."
+                    }
+                  ],
+                  "results": [{ "status": "skipped", "errors": [] }],
+                  "status": "skipped"
+                },
+                {
+                  "projectName": "Samsung Galaxy S23",
+                  "annotations": [],
+                  "results": [{ "status": "passed", "errors": [] }],
+                  "status": "expected"
+                }
+              ]
+            },
+            {
+              "title": "Profilbild | Rahmen sieht wie im Entwurf aus",
+              "tests": [
+                {
+                  "projectName": "iPhone 16",
+                  "annotations": [],
+                  "results": [
+                    {
+                      "status": "passed",
+                      "errors": [],
+                      "annotations": [{ "type": "zu prüfen", "description": "Rahmenfarbe" }]
+                    }
+                  ],
+                  "status": "expected"
+                },
+                {
+                  "projectName": "Samsung Galaxy S23",
+                  "annotations": [{ "type": "zu prüfen", "description": "Rahmenfarbe" }],
+                  "results": [{ "status": "passed", "errors": [] }],
+                  "status": "expected"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "tests-e2e.spec.ts",
+      "file": "tests-e2e.spec.ts",
+      "specs": [
+        {
+          "title": "Seite startet oben",
+          "tests": [
+            {
+              "projectName": "iPhone 16",
+              "annotations": [],
+              "results": [
+                {
+                  "status": "failed",
+                  "errors": [
+                    {
+                      "message": "Error: expect(received).toBe(expected)\n\nExpected: 0\nReceived: 138"
+                    }
+                  ]
+                }
+              ],
+              "status": "unexpected"
+            },
+            {
+              "projectName": "Samsung Galaxy S23",
+              "annotations": [],
+              "results": [
+                {
+                  "status": "timedOut",
+                  "errors": [{ "message": "Test timeout of 30000ms exceeded." }]
+                }
+              ],
+              "status": "unexpected"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

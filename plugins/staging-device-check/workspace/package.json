@@ -1,0 +1,11 @@
+{
+  "name": "staging-device-check-workspace",
+  "private": true,
+  "description": "Run folder template: generated specs run here with `npx browserstack-node-sdk playwright test`. Versions are pinned: @playwright/test/playwright 1.62.1 is the newest client BrowserStack lists for both iOS and Android (docs: automate/playwright/browsers-and-os).",
+  "type": "module",
+  "dependencies": {
+    "@playwright/test": "1.62.1",
+    "browserstack-node-sdk": "1.79.0",
+    "playwright": "1.62.1"
+  }
+}

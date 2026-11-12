@@ -1,0 +1,8 @@
+userName: fake-user-0001
+accessKey: fakeAccessKey000000000
+framework: playwright
+browserstackLocal: true
+platforms:
+  - deviceName: iPhone 16
+    osVersion: 18
+    browserName: safari

@@ -1,0 +1,11 @@
+userName: fake-user-0001
+accessKey: fakeAccessKey000000000
+framework: playwright
+consoleLogs: info
+platforms:
+  - deviceName: iPhone SE 2022
+    osVersion: 15
+    browserName: chromium
+  - deviceName: Samsung Galaxy S23
+    osVersion: 13.0
+    browserName: samsung

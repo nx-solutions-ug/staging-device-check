@@ -1,0 +1,14 @@
+# Invented credentials — the shape of a BrowserStack Node SDK config, not a real account.
+userName: fake-user-0001
+accessKey: fakeAccessKey000000000
+framework: playwright
+platforms:
+  - deviceName: iPhone 16
+    osVersion: 18
+    browserName: safari
+  - deviceName: Samsung Galaxy S23
+    osVersion: 13.0
+    browserName: chrome
+browserstackLocal: false
+buildName: example-build
+projectName: example-project

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "sh",
+      "args": [
+        "-c",
+        "exec npx -y @playwright/mcp@0.0.84 --isolated --storage-state \"${XDG_DATA_HOME:-$HOME/.local/share}/staging-device-check/gate-state.json\" --viewport-size 393x852"
+      ]
+    }
+  }
+}
