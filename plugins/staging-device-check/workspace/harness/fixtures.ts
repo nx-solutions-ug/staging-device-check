@@ -5,7 +5,7 @@
  * Options set by the spec with `test.use(...)`: `persona`, and for sign-in `loginPath`, `signInSelectors`,
  * `codePattern` (all found on the first local look). The device label is the project name.
  */
-import { mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test as base } from '@playwright/test';
 import {
@@ -87,7 +87,14 @@ export const test = base.extend<Options & Fixtures>({
           }),
         },
         context,
-        mint: (host) => mintRunToken(config.apex, host, config.tokenMinutes, password),
+        mint: async (host) => {
+          const token = await mintRunToken(config.apex, host, config.tokenMinutes, password);
+          // hand the value to the runner, which masks it in every file of the run folder afterwards
+          appendFileSync(join(need('SDC_RUN_DIR'), '.run-tokens'), `${token.value}\n`, {
+            mode: 0o600,
+          });
+          return token;
+        },
         warn: (message) => {
           testInfo.annotations.push({ type: 'warnung', description: message });
           console.error(message);
