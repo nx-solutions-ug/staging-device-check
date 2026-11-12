@@ -1,0 +1,14 @@
+{
+  "name": "staging-device-check",
+  "displayName": "Staging Device Check",
+  "version": "0.1.0",
+  "description": "Lässt Claude ein Jira-Ticket auf echten Handys über BrowserStack gegen Staging testen.",
+  "author": {
+    "name": "NX Solutions UG",
+    "url": "https://github.com/nx-solutions-ug"
+  },
+  "homepage": "https://github.com/nx-solutions-ug/staging-device-check",
+  "repository": "https://github.com/nx-solutions-ug/staging-device-check",
+  "license": "MIT",
+  "keywords": ["browserstack", "playwright", "staging", "e2e", "mobile", "jira"]
+}
