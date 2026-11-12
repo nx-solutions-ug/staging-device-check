@@ -37,6 +37,8 @@ export type StagingDeps = {
     clearCookies(filter: { name: string }): Promise<void>;
   };
   mint(host: string): Promise<RunTokenLike>;
+  /** Where teardown problems are reported (the fixture writes them to the test's annotations and stderr). */
+  warn?: (message: string) => void;
 };
 
 export type Staging = { host: string; goto(path: string): Promise<void> };
@@ -83,6 +85,7 @@ export async function withStaging(
     );
   }
   const token = await d.mint(d.host);
+  let testError: unknown = null;
   try {
     await d.page.goto(token.bootstrapUrl);
     await d.context.addCookies([
@@ -112,10 +115,30 @@ export async function withStaging(
     }
     await use({
       host: d.host,
-      goto: (path: string) => d.page.goto(new URL(path, `https://${d.host}/`).toString()),
+      goto: (path: string) => {
+        const url = new URL(path, `https://${d.host}/`);
+        if (url.host !== d.host || url.protocol !== 'https:') {
+          return Promise.reject(
+            new StagingZugangFehler(
+              `staging.goto: ${url.origin} ist ein anderer Host als ${d.host} — nur Pfade oder Adressen auf dem App-Host.`,
+            ),
+          );
+        }
+        return d.page.goto(url.toString());
+      },
     });
-  } finally {
-    await d.context.clearCookies({ name: token.name }).catch(() => {});
-    token.value = '';
+  } catch (e) {
+    testError = e;
   }
+  // Teardown without `finally`, so neither error can silently replace the other.
+  token.value = '';
+  let removal: string | null = null;
+  try {
+    await d.context.clearCookies({ name: token.name });
+  } catch (e) {
+    removal = `Run-Token konnte nach dem Test nicht aus dem Browser entfernt werden (${(e as Error).message}). Er läuft spätestens nach seiner Laufzeit ab.`;
+    d.warn?.(removal);
+  }
+  if (testError) throw testError; // a failing test keeps its own error
+  if (removal) throw new StagingZugangFehler(removal); // a passing one must not hide the problem
 }

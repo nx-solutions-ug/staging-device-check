@@ -141,6 +141,47 @@ describe('withStaging', () => {
   });
 });
 
+describe('staging.goto and teardown', () => {
+  test('goto accepts paths and same-host URLs, refuses other hosts', async () => {
+    const { deps, events } = fakes();
+    await withStaging(deps, async (s) => {
+      await s.goto('/login');
+      await s.goto(`https://${HOST}/profile?x=1`);
+      await expect(s.goto('https://evil.example.test/')).rejects.toThrow('anderer Host');
+      await expect(s.goto('//evil.example.test/x')).rejects.toThrow('anderer Host');
+    });
+    expect(events).toContain(`goto https://${HOST}/login`);
+    expect(events).toContain(`goto https://${HOST}/profile?x=1`);
+    expect(events.some((e) => e.includes('evil'))).toBe(false);
+  });
+
+  test('a failed token removal is reported, not swallowed', async () => {
+    const { deps } = fakes();
+    deps.context.clearCookies = async () => {
+      throw new Error('context closed');
+    };
+    const warnings: string[] = [];
+    deps.warn = (m) => void warnings.push(m);
+    await expect(withStaging(deps, async () => {})).rejects.toThrow('Run-Token');
+    expect(warnings.join(' ')).toContain('context closed');
+  });
+
+  test('a failed removal after a failed test keeps the test error and still reports', async () => {
+    const { deps } = fakes();
+    deps.context.clearCookies = async () => {
+      throw new Error('context closed');
+    };
+    const warnings: string[] = [];
+    deps.warn = (m) => void warnings.push(m);
+    await expect(
+      withStaging(deps, async () => {
+        throw new Error('assertion failed');
+      }),
+    ).rejects.toThrow('assertion failed');
+    expect(warnings.join(' ')).toContain('Run-Token');
+  });
+});
+
 describe('classifyLanding', () => {
   test('ok, gate, provisioning, 404', () => {
     const base = { url: `https://${HOST}/`, status: 200, title: 'App', text: '' };

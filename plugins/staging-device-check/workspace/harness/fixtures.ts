@@ -1,33 +1,20 @@
 /**
  * Playwright fixtures for generated specs: `import { test, expect } from '../harness/fixtures.js'`.
  * Run context comes from the runner (env): SDC_HOST (app host), SDC_RUN_DIR (run folder), SDC_TICKET.
- * Persona is a fixture option (`test.use({ persona: '…' })`); the device label is the project name.
+ * Options set by the spec with `test.use(...)`: `persona`, and for sign-in `loginPath`, `signInSelectors`,
+ * `codePattern` (all found on the first local look). The device label is the project name.
  */
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test as base } from '@playwright/test';
-import { loadConfig, mintRunToken, readGatePassword } from './lib.js';
+import { gateLogin, latestLoginCode, loadConfig, mintRunToken, readGatePassword } from './lib.js';
 import { measure, type LayoutOpts } from './measure.js';
+import { shotName } from './names.js';
 import { evaluateRules, type RuleResult } from './rules.js';
+import { signIn, type SignInSelectors } from './signin.js';
 import { withStaging, type Staging } from './staging.js';
 
-const slug = (s: string) =>
-  s
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '') || 'x';
-
-/** `<TICKET>_<device>_<persona>_<NN>-<step-slug>.png` (Global Constraints). */
-export function shotName(
-  ticket: string,
-  device: string,
-  persona: string,
-  n: number,
-  step: string,
-): string {
-  return `${ticket}_${slug(device)}_${slug(persona)}_${String(n).padStart(2, '0')}-${slug(step)}.png`;
-}
+export { shotName, slug } from './names.js';
 
 const need = (name: string): string => {
   const v = process.env[name];
@@ -36,22 +23,36 @@ const need = (name: string): string => {
   return v;
 };
 
-type Fixtures = {
+function settings() {
+  const config = loadConfig();
+  if (!config) throw new Error('Keine Einstellungen gefunden — bitte zuerst das Setup ausführen.');
+  const password = readGatePassword();
+  if (!password) throw new Error('Kein Staging-Passwort gespeichert — bitte im Setup eingeben.');
+  return { config, password };
+}
+
+type Options = {
   persona: string;
+  loginPath: string;
+  signInSelectors: SignInSelectors;
+  codePattern: RegExp | undefined;
+};
+
+type Fixtures = {
   staging: Staging;
+  account: (label: string) => Promise<void>;
   shot: (step: string) => Promise<string>;
   layout: (opts: LayoutOpts & { keyboard?: boolean }) => Promise<RuleResult[]>;
 };
 
-export const test = base.extend<Fixtures>({
+export const test = base.extend<Options & Fixtures>({
   persona: ['standard', { option: true }],
+  loginPath: ['/login', { option: true }],
+  signInSelectors: [{}, { option: true }],
+  codePattern: [undefined, { option: true }],
 
-  staging: async ({ page, context }, use) => {
-    const config = loadConfig();
-    if (!config)
-      throw new Error('Keine Einstellungen gefunden — bitte zuerst das Setup ausführen.');
-    const password = readGatePassword();
-    if (!password) throw new Error('Kein Staging-Passwort gespeichert — bitte im Setup eingeben.');
+  staging: async ({ page, context }, use, testInfo) => {
+    const { config, password } = settings();
     let lastStatus: number | null = null;
     await withStaging(
       {
@@ -72,9 +73,34 @@ export const test = base.extend<Fixtures>({
         },
         context,
         mint: (host) => mintRunToken(config.apex, host, config.tokenMinutes, password),
+        warn: (message) => {
+          testInfo.annotations.push({ type: 'warnung', description: message });
+          console.error(message);
+        },
       },
       use,
     );
+  },
+
+  account: async ({ page, staging, loginPath, signInSelectors, codePattern }, use) => {
+    const { config, password } = settings();
+    await use(async (label) => {
+      const account = config.accounts.find((a) => a.label === label);
+      if (!account) throw new Error(`Testkonto „${label}“ ist im Setup nicht hinterlegt.`);
+      await signIn(page, account, {
+        goto: (path) => staging.goto(path),
+        loginPath,
+        selectors: signInSelectors,
+        runDir: need('SDC_RUN_DIR'),
+        readCode: async (email, since) => {
+          // local gate session (this machine), never the device session
+          const gate = await gateLogin(config.apex, password);
+          return latestLoginCode(config.apex, gate.value, email, since, fetch, undefined, {
+            pattern: codePattern,
+          });
+        },
+      });
+    });
   },
 
   shot: async ({ page, persona }, use, testInfo) => {

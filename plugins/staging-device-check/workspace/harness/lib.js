@@ -187,6 +187,71 @@ async function mintRunToken(apex, host, minutes, password, fetchFn = fetch) {
     bootstrapUrl: `https://${host}${bootstrapPath}`
   };
 }
+function parseGateCookie(header, fallbackDomain) {
+  const [pair, ...attrs] = header.split(";").map((s) => s.trim());
+  const eq = pair.indexOf("=");
+  if (eq < 0 || pair.slice(0, eq) !== "staging_gate") return null;
+  const value = pair.slice(eq + 1);
+  const attr = new Map(
+    attrs.map((a) => {
+      const i = a.indexOf("=");
+      return i < 0 ? [a.toLowerCase(), ""] : [a.slice(0, i).toLowerCase(), a.slice(i + 1)];
+    })
+  );
+  const now = Math.floor(Date.now() / 1e3);
+  const maxAge = Number(attr.get("max-age"));
+  const expiresAt = attr.has("expires") ? Math.floor(Date.parse(attr.get("expires")) / 1e3) : NaN;
+  const expires = Number.isFinite(maxAge) && attr.has("max-age") ? now + maxAge : Number.isFinite(expiresAt) ? expiresAt : -1;
+  return { name: "staging_gate", value, domain: attr.get("domain") || fallbackDomain, expires };
+}
+async function gateLogin(apex, password, fetchFn = fetch) {
+  const r = await post(`${base(apex)}/_gate/login`, { password, return_to: "/" }, fetchFn, {
+    redirect: "manual"
+  });
+  if (r.status !== 302 && r.status !== 303 && r.status !== 200)
+    throw statusError(r.status, apex, null, "");
+  const headers = r.headers.getSetCookie?.() ?? (r.headers.get("set-cookie") ? [r.headers.get("set-cookie")] : []);
+  for (const h of headers) {
+    const c = parseGateCookie(h, apexHostOf(apex));
+    if (c && c.value) return c;
+  }
+  throw new GateError(
+    "unexpected",
+    "Der Staging-Server hat beim Gate-Login kein Gate-Cookie gesetzt."
+  );
+}
+
+// src/mailpit.ts
+async function latestLoginCode(apex, gateCookie, email, since, fetchFn = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), opts = {}) {
+  const { pattern = /\b\d{6}\b/, timeoutMs = 6e4, intervalMs = 2e3, now = Date.now } = opts;
+  const base2 = `${apex.replace(/\/+$/, "")}/mailpit/api/v1`;
+  const headers = { cookie: `staging_gate=${gateCookie}`, accept: "application/json" };
+  const get = async (url) => {
+    const r = await fetchFn(url, { headers });
+    if (r.status === 401 || r.status === 403 || r.redirected)
+      throw new Error("Mailpit ist ohne g\xFCltige Gate-Sitzung nicht lesbar.");
+    if (!r.ok) throw new Error(`Mailpit antwortet mit HTTP ${r.status}.`);
+    return r.json();
+  };
+  const deadline = now() + timeoutMs;
+  for (; ; ) {
+    const search = await get(
+      `${base2}/search?query=${encodeURIComponent(`to:"${email}"`)}&limit=20`
+    );
+    const fresh = (search.messages ?? []).filter((m) => Date.parse(m.Created) > since.getTime()).sort((a, b) => Date.parse(b.Created) - Date.parse(a.Created));
+    for (const m of fresh) {
+      const msg = await get(`${base2}/message/${encodeURIComponent(m.ID)}`);
+      const text = msg.Text || (msg.HTML ?? "").replace(/<[^>]+>/g, " ");
+      const code = pattern.exec(text)?.[0];
+      if (code) return code;
+    }
+    if (now() >= deadline) break;
+    await sleep(Math.min(intervalMs, Math.max(0, deadline - now())));
+  }
+  throw new Error(
+    `Kein Login-Code f\xFCr ${email} innerhalb von ${Math.round(timeoutMs / 1e3)} s in Mailpit angekommen.`
+  );
+}
 
 // src/redact.ts
 var MASK = "\xABgeheim\xBB";
@@ -212,6 +277,8 @@ function redactor(secrets) {
 }
 export {
   GateError,
+  gateLogin,
+  latestLoginCode,
   loadConfig,
   mintRunToken,
   readGatePassword,

@@ -47,6 +47,12 @@ describe('evaluateRules', () => {
     expect(byRule(evaluateRules(metrics(), 'settled', 'ios'), 'R1')?.outcome).toBe('bestanden');
   });
 
+  test('R1 is omitted when no footer was found', () => {
+    expect(
+      byRule(evaluateRules(metrics({ footerHeight: null }), 'settled', 'ios'), 'R1'),
+    ).toBeUndefined();
+  });
+
   test('R1 tolerates 1 px', () => {
     expect(
       byRule(evaluateRules(metrics({ maxScroll: 121 }), 'settled', 'ios'), 'R1')?.outcome,

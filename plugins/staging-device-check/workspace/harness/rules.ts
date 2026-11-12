@@ -20,8 +20,8 @@ export type Metrics = {
   scrollWidth: number;
   /** scrollHeight − innerHeight */
   maxScroll: number;
-  /** 0 when no footer selector was given or the footer is absent */
-  footerHeight: number;
+  /** null when no footer selector was given or the footer is absent — R1 is then omitted */
+  footerHeight: number | null;
   visualViewport: { offsetTop: number; height: number; width: number } | null;
   header: Rect | null;
   /** elements that must start below the header (R2) */
@@ -83,14 +83,16 @@ function r3(m: Metrics): RuleResult | null {
 export function evaluateRules(m: Metrics, phase: Phase, platform: Platform): RuleResult[] {
   const out: Array<RuleResult | null> = [];
   if (phase === 'settled') {
-    const over = m.maxScroll - m.footerHeight;
-    out.push(
-      result(
-        'R1',
-        over <= TOL,
-        `maxScroll ${n(m.maxScroll)} − Footer ${n(m.footerHeight)} = ${n(over)}`,
-      ),
-    );
+    if (m.footerHeight !== null) {
+      const over = m.maxScroll - m.footerHeight;
+      out.push(
+        result(
+          'R1',
+          over <= TOL,
+          `maxScroll ${n(m.maxScroll)} − Footer ${n(m.footerHeight)} = ${n(over)}`,
+        ),
+      );
+    }
     out.push(result('start', m.scrollY <= TOL, `scrollY ${n(m.scrollY)}`));
     if (m.header && m.top.length) {
       const hb = m.header.bottom;
