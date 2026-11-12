@@ -130,4 +130,73 @@ run; the credentials only in the child env. **Minutes: 0.5** (API session sum 9.
 ## Still open
 
 - ~~**The `report` note.**~~ Fixed: notes drop ANSI codes.
-- **The abort live check** (SIGTERM mid-test) moved to Task 10. Cleanup on SIGINT/SIGTERM is unit-tested.
+- ~~**The abort live check.**~~ Done in the staging run below.
+- **`result.json` after an abort:** not written (see below).
+
+## 12.11.2026 — first end-to-end run against a staging app
+
+**Setup.**
+
+- A clean Claude Code profile: its own `HOME` and `CLAUDE_CONFIG_DIR`. The plugin was installed from the marketplace,
+  pinned to the feature branch (`owner/repo#branch`), and the installed copy was checked against the pushed commit.
+- Setup followed the skill through the CLI: `install-workspace`, the settings file, `set-secret` on a pty with the
+  password piped in from the secrets store (never on screen or in argv), then `local-state` and `doctor`.
+- With no session bus, `set-secret` falls back to the mode-600 file in the profile; the system keyring stayed empty.
+- BrowserStack: the same trial setup as above. The test yml has no credentials; they reach the CLI only through its
+  child env. Same devices.
+- One ticket, read only, with a status comment on staging. Registration up to the last step before the account is
+  created, nothing submitted, no account created.
+
+**Minutes.** Seven runs, ≈ 8.4 min in all:
+
+| Run | Devices          | Minutes | Outcome                                                     |
+| --- | ---------------- | ------- | ----------------------------------------------------------- |
+| 1   | iPhone           | 1.1     | Failed: the device language was English (below)             |
+| 2   | iPhone           | 1.5     | Failed: the spec, not the plugin                            |
+| 3   | iPhone           | 0.5     | Failed: a tap on an element still fading in (below)         |
+| 4   | iPhone           | 1.6     | All checks pass                                             |
+| 5   | iPhone + Android | 2.1     | iPhone passes; Android shows two layout failures of the app |
+| 6   | Android          | 1.1     | Re-check of one Android measurement                         |
+| 7   | iPhone           | 0.5     | Abort probe                                                 |
+
+**Found and fixed.**
+
+- **The local gate session never reached the app hosts.**
+  - The gate's `Set-Cookie` names the apex as `Domain`, without a leading dot (RFC 6265: subdomains included).
+  - Playwright's storage state reads a domain without the dot as host-only, so the local browser was sent to the gate
+    login on every app host.
+  - The stored cookie now keeps the dot.
+- **The iPhone runs in English.**
+  - Playwright's `locale` has no effect there, and BrowserStack's `language`/`locale` capabilities need a paid plan.
+  - An app that follows the browser language shows English.
+  - The harness's `appCookie` fixture carries a language cookie of the app, seen on the local look, over to the
+    confirmed host before the first navigation; with it, the device showed the tester's language.
+- **`tap` on the iPhone does not auto-wait.** An element still fading in fails at once with "visibility:hidden";
+  specs wait for `toBeVisible()` first.
+
+**Hosts and tokens.** A run token opened both kinds of host:
+
+- the unmarked branch host;
+- the host marked with a site label: 200 with the token, 302 to the gate without it.
+
+The ticket's flow exists only on the marked host, so the runs used it.
+
+**Abort (SIGINT to the CLI mid-test, iPhone).**
+
+- The CLI exited 6 s after the signal and cleaned the run folder; no token list or yml copy was left.
+- BrowserStack ended the session (status `error`, 27 s): it was not left idling on the trial minutes.
+- No SDK or Playwright process of the run was left.
+- `result.json` was not written: the SDK group stops before the Playwright reporter writes it, so `report` has
+  nothing to read after an abort.
+
+**Redaction scan after the runs.** In-process search for the username, the key, their combined, base64,
+URI-encoded and JSON-escaped forms, and the gate password:
+
+| Place searched                                                                            | Files | Hits |
+| ----------------------------------------------------------------------------------------- | ----- | ---- |
+| Seven run folders                                                                         | 64    | 0    |
+| The whole profile `HOME`, including the SDK's `~/.browserstack` (`node_modules` excluded) | 1000  | 0    |
+| The streamed CLI output of every run                                                      | 7     | 0    |
+
+Run tokens are masked from the run's own token list, which the clean pass deletes afterwards. They were checked
+only by shape.
