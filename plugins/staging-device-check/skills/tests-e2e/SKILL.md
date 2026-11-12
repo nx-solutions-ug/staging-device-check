@@ -97,6 +97,7 @@ test.describe('Konto A (frau)', () => {
     await check(
       'Weiter-Knopf über der Tastatur',
       async () => {
+        await expect(page.getByLabel('Ort')).toBeVisible();
         await page.getByLabel('Ort').tap();
         const rules = await layout({ header: 'header', actionBar: '.bottom-bar', keyboard: true });
         const r4 = rules.find((x) => x.rule === 'R4');

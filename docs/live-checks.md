@@ -198,5 +198,6 @@ URI-encoded and JSON-escaped forms, and the gate password:
 | The whole profile `HOME`, including the SDK's `~/.browserstack` (`node_modules` excluded) | 1000  | 0    |
 | The streamed CLI output of every run                                                      | 7     | 0    |
 
-Run tokens are masked from the run's own token list, which the clean pass deletes afterwards. They were checked
-only by shape.
+Run tokens are masked from the run's own token list, which the clean pass deletes afterwards, so their values
+could not be searched for after the run. The run-token cookie's name appears in no file of the run folders, the SDK
+folder or the output. Each token expires after the configured minutes (20 by default).

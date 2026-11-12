@@ -118,6 +118,12 @@ describe('skills', () => {
     expect(ios).toMatch(/do not wait/);
     expect(md).toContain('toBeVisible()');
     expect(md).toMatch(/before every `tap`/);
+    // the example follows its own rule: every tap comes right after a toBeVisible() on the same locator
+    const example = md.slice(md.indexOf('```ts'), md.indexOf('```', md.indexOf('```ts') + 5));
+    const lines = example.split('\n');
+    lines.forEach((l, i) => {
+      if (l.includes('.tap()')) expect(lines[i - 1] ?? '').toContain('toBeVisible()');
+    });
   });
 
   test('tests-e2e says a real failure wins over nicht prüfbar hier', () => {
