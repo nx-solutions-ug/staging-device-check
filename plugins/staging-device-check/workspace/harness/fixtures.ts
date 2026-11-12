@@ -16,6 +16,7 @@ import {
   mintRunToken,
   readGatePassword,
 } from './lib.js';
+import { beginCheck, noteLayout, unmeasured } from './check-state.js';
 import { evaluateWith } from './evaluate.js';
 import { measure, type LayoutOpts } from './measure.js';
 import { shotName, stepNote } from './names.js';
@@ -158,7 +159,7 @@ export const test = base.extend<Options & Fixtures>({
       const settled = await measure(page, opts);
       const ua = await page.evaluate(() => navigator.userAgent);
       const platform = /iPhone|iPad|iPod/.test(ua) ? 'ios' : 'android';
-      if (keyboard) return evaluateRules(settled, 'keyboard', platform);
+      if (keyboard) return noteLayout(evaluateRules(settled, 'keyboard', platform));
       const results = evaluateRules(settled, 'settled', platform);
       if (opts.actionBar) {
         const y = settled.scrollY;
@@ -171,7 +172,7 @@ export const test = base.extend<Options & Fixtures>({
         );
         await evaluateWith(page, (top: number) => window.scrollTo(0, top), y);
       }
-      return results;
+      return noteLayout(results);
     });
   },
 });
@@ -201,23 +202,33 @@ export async function check(
 ): Promise<void> {
   await base.step(title, async (step) => {
     const info = base.info();
-    if (opts.keyboard && IOS.test(info.project.name)) {
-      info.annotations.push({
-        type: 'nicht prüfbar hier',
-        description: stepNote(title, 'Tastatur auf iOS — auf eigenem iPhone prüfen'),
-      });
+    const ios = IOS.test(info.project.name);
+    const notHere = (reason: string) =>
+      info.annotations.push({ type: 'nicht prüfbar hier', description: stepNote(title, reason) });
+    if (opts.keyboard && ios) {
+      notHere('Tastatur auf iOS — auf eigenem iPhone prüfen');
       step.skip(); // ends only this check's body; the persona's other checks still run
     }
-    await body({
-      zuPruefen: (shotPath, hint) =>
-        info.annotations.push({
-          type: 'zu prüfen',
-          description: stepNote(
-            title,
-            hint ? `${hint} — ${basename(shotPath)}` : basename(shotPath),
-          ),
-        }),
-    });
+    const end = beginCheck();
+    let failure: unknown = null;
+    try {
+      await body({
+        zuPruefen: (shotPath, hint) =>
+          info.annotations.push({
+            type: 'zu prüfen',
+            description: stepNote(
+              title,
+              hint ? `${hint} — ${basename(shotPath)}` : basename(shotPath),
+            ),
+          }),
+      });
+    } catch (e) {
+      failure = e;
+    }
+    // fail closed: what layout() could not measure on iOS is never a pass, whatever the spec asserted
+    const reason = unmeasured(end());
+    if (ios && reason) notHere(reason);
+    if (failure) throw failure;
   });
 }
 

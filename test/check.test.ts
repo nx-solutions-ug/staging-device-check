@@ -13,6 +13,7 @@ const ANDROID = 'chrome-Samsung Galaxy S23:13.0-browserstack-mobile';
 const SPEC = `
 import { appendFileSync } from 'node:fs';
 import { check, expect, test } from './harness/fixtures.js';
+import { noteLayout } from './harness/check-state.js';
 
 test('Konto A (frau)', async () => {
   await check('Kopf da', async () => {
@@ -32,6 +33,17 @@ test('Konto B (mann)', async () => {
   });
   await check('Zwei', async () => {});
   await check('Drei', async () => {});
+});
+
+test('Konto D (mann)', async () => {
+  await check('Tastatur ohne Option', async () => {
+    const r = noteLayout([{ rule: 'R4', outcome: 'nicht prüfbar hier', detail: 'Auf iOS öffnet Playwright keine Bildschirmtastatur.' }]);
+    expect.soft(r.find((x) => x.rule === 'R4')?.outcome).toBe('bestanden');
+  });
+  await check('Leeres Layout', async () => {
+    const r = noteLayout([]);
+    expect.soft(r.find((x) => x.rule === 'R4')?.outcome).toBe('bestanden');
+  });
 });
 
 test('Konto C (frau)', async () => {
@@ -106,6 +118,32 @@ describe('check() with real Playwright, read by report', () => {
         });
       }
     }
+  });
+
+  test('layout() that measured nothing or only nicht prüfbar hier makes the check nicht prüfbar hier on iOS', () => {
+    // no { keyboard: true } on these checks: check() still fails closed from what layout() returned
+    expect(row('Konto D (mann): Tastatur ohne Option', 'iPhone')?.outcome).toBe(
+      'nicht prüfbar hier',
+    );
+    expect(row('Konto D (mann): Tastatur ohne Option', 'iPhone')?.note).toContain(
+      'Bildschirmtastatur',
+    );
+    expect(row('Konto D (mann): Leeres Layout', 'iPhone')?.outcome).toBe('nicht prüfbar hier');
+    // on Android the concrete rule assertion decides
+    expect(row('Konto D (mann): Tastatur ohne Option', 'Android')?.outcome).toBe('nicht bestanden');
+    expect(row('Konto D (mann): Leeres Layout', 'Android')?.outcome).toBe('nicht bestanden');
+  });
+
+  test('the layout fixture hands every result to check()', () => {
+    const src = readFileSync(
+      join(ROOT, 'plugins', 'staging-device-check', 'workspace', 'harness', 'fixtures.ts'),
+      'utf8',
+    );
+    const layout = src.slice(
+      src.indexOf('layout: async'),
+      src.indexOf('});', src.indexOf('layout: async')),
+    );
+    expect(layout.match(/return /g)?.length).toBe(layout.match(/return noteLayout\(/g)?.length);
   });
 
   test('an annotation without a matching check is an Ablauf failure', () => {
