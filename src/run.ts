@@ -360,6 +360,7 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
 
   const ymlCopy = join(dir, RUN_YML);
   let code = 1;
+  const untrack = trackRun(dir, secrets);
   try {
     const chosen = plan.chosen;
     let configFile = config.browserstackYml;
@@ -425,6 +426,7 @@ export async function runTests(dir: string, opts: RunOptions, d: RunDeps): Promi
     }
   } finally {
     cleanRunFolder(dir, secrets);
+    untrack();
   }
   const after = await usedMinutes(user, key, d.fetchFn);
   if (after !== null && used !== null) {
@@ -449,6 +451,33 @@ const killGroup = (pid: number, signal: NodeJS.Signals) => {
 /** Kills every running SDK process group at once (the CLI's second Ctrl+C). */
 export function killActiveGroups(): void {
   for (const pid of activeGroups) killGroup(pid, 'SIGKILL');
+}
+
+/** Run folders whose run is going, with the secrets to mask in them, for a hard stop. */
+const activeRuns = new Map<string, string[]>();
+
+/** Marks a run folder as running; the returned function unmarks it. */
+export function trackRun(dir: string, secrets: string[]): () => void {
+  activeRuns.set(dir, secrets);
+  return () => {
+    activeRuns.delete(dir);
+  };
+}
+
+/**
+ * Hard stop, synchronous, so it also works from an `exit` handler: SIGKILL to every SDK group, then the normal clean
+ * pass on every running run folder (token list and yml copy deleted, tokens and secrets masked in every file).
+ */
+export function hardStop(): void {
+  killActiveGroups();
+  for (const [dir, secrets] of activeRuns) {
+    try {
+      cleanRunFolder(dir, secrets);
+    } catch {
+      // the folder is gone; nothing left to clean
+    }
+  }
+  activeRuns.clear();
 }
 
 /**

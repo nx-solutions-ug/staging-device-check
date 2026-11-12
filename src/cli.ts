@@ -30,7 +30,7 @@ import {
   workspaceDir,
   type Device,
   type Mailbox,
-  killActiveGroups,
+  hardStop,
   type RunDeps,
   validateTicket,
 } from './run.js';
@@ -340,12 +340,8 @@ export async function main(argv: string[], d: CliDeps): Promise<number> {
         const release =
           d.interrupts?.(
             () => abort.abort(),
-            () => {
-              // second Ctrl+C: no cleanup pass any more, so the files that hold secrets go first
-              rmSync(join(dir, '.run-tokens'), { force: true });
-              rmSync(join(dir, '.browserstack.run.yml'), { force: true });
-              killActiveGroups();
-            },
+            // second Ctrl+C, SIGHUP or an exit mid-run: SIGKILL to the SDK groups, then the clean pass at once
+            hardStop,
           ) ?? (() => {});
         try {
           return await runTests(
@@ -462,26 +458,39 @@ export function realDeps(): CliDeps {
     workspaceSource: fileURLToPath(new URL('../workspace/', import.meta.url)),
     nodeVersion: process.versions.node,
     interrupts: (stop, hard) => {
-      // the first signal stops the SDK group and lets the run folder be cleaned; Node's default exit would skip
-      // that. A second one exits at once, after removing the files that hold secrets.
+      // the first Ctrl+C / SIGTERM stops the SDK group and lets the run folder be cleaned; Node's default exit would
+      // skip that. A second one exits at once, after the hard stop. A hang-up (terminal or parent gone) has no one
+      // left to watch a graceful stop: hard stop and exit. Any other exit while the run goes runs the hard stop too.
       let count = 0;
       const on = () => {
         count += 1;
         if (count === 1) {
-          process.stderr.write(
-            '\nLauf wird abgebrochen und aufgeräumt … (noch einmal Strg+C: sofort beenden)\n',
-          );
+          try {
+            process.stderr.write(
+              '\nLauf wird abgebrochen und aufgeräumt … (noch einmal Strg+C: sofort beenden)\n',
+            );
+          } catch {
+            // no terminal any more
+          }
           stop();
           return;
         }
         hard();
         process.exit(130);
       };
+      const hangup = () => {
+        hard();
+        process.exit(129);
+      };
       process.on('SIGINT', on);
       process.on('SIGTERM', on);
+      process.on('SIGHUP', hangup);
+      process.on('exit', hard);
       return () => {
         process.off('SIGINT', on);
         process.off('SIGTERM', on);
+        process.off('SIGHUP', hangup);
+        process.off('exit', hard);
       };
     },
   };

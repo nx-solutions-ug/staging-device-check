@@ -23241,6 +23241,7 @@ async function runTests(dir, opts, d) {
   }
   const ymlCopy = join5(dir, RUN_YML);
   let code2 = 1;
+  const untrack = trackRun(dir, secrets);
   try {
     const chosen = plan.chosen;
     let configFile = config.browserstackYml;
@@ -23302,6 +23303,7 @@ async function runTests(dir, opts, d) {
     }
   } finally {
     cleanRunFolder(dir, secrets);
+    untrack();
   }
   const after = await usedMinutes(user, key, d.fetchFn);
   if (after !== null && used !== null) {
@@ -23320,6 +23322,23 @@ var killGroup = (pid, signal) => {
 };
 function killActiveGroups() {
   for (const pid of activeGroups) killGroup(pid, "SIGKILL");
+}
+var activeRuns = /* @__PURE__ */ new Map();
+function trackRun(dir, secrets) {
+  activeRuns.set(dir, secrets);
+  return () => {
+    activeRuns.delete(dir);
+  };
+}
+function hardStop() {
+  killActiveGroups();
+  for (const [dir, secrets] of activeRuns) {
+    try {
+      cleanRunFolder(dir, secrets);
+    } catch {
+    }
+  }
+  activeRuns.clear();
 }
 var realSpawn = (cmd, args, opts, onStdout, onStderr) => new Promise((resolve2) => {
   const child = nodeSpawn(cmd, args, {
@@ -23625,11 +23644,8 @@ async function main(argv, d) {
         const abort = new AbortController();
         const release = d.interrupts?.(
           () => abort.abort(),
-          () => {
-            rmSync4(join6(dir, ".run-tokens"), { force: true });
-            rmSync4(join6(dir, ".browserstack.run.yml"), { force: true });
-            killActiveGroups();
-          }
+          // second Ctrl+C, SIGHUP or an exit mid-run: SIGKILL to the SDK groups, then the clean pass at once
+          hardStop
         ) ?? (() => {
         });
         try {
@@ -23748,20 +23764,31 @@ function realDeps() {
       const on = () => {
         count += 1;
         if (count === 1) {
-          process.stderr.write(
-            "\nLauf wird abgebrochen und aufger\xE4umt \u2026 (noch einmal Strg+C: sofort beenden)\n"
-          );
+          try {
+            process.stderr.write(
+              "\nLauf wird abgebrochen und aufger\xE4umt \u2026 (noch einmal Strg+C: sofort beenden)\n"
+            );
+          } catch {
+          }
           stop();
           return;
         }
         hard();
         process.exit(130);
       };
+      const hangup = () => {
+        hard();
+        process.exit(129);
+      };
       process.on("SIGINT", on);
       process.on("SIGTERM", on);
+      process.on("SIGHUP", hangup);
+      process.on("exit", hard);
       return () => {
         process.off("SIGINT", on);
         process.off("SIGTERM", on);
+        process.off("SIGHUP", hangup);
+        process.off("exit", hard);
       };
     }
   };
