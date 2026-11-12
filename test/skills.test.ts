@@ -90,6 +90,15 @@ describe('skills', () => {
     expect(md).not.toContain(".not.toBe('nicht bestanden')");
   });
 
+  test('tests-e2e starts run in the background, never as a plain 2-minute Bash call', () => {
+    const md = read('skills', 'tests-e2e', 'SKILL.md');
+    const step = md.slice(md.indexOf('## 6.'), md.indexOf('## Never'));
+    expect(step).toContain('run_in_background: true');
+    expect(step).toContain('600000');
+    expect(step).toMatch(/never a\s+plain/i);
+    expect(step).toMatch(/completion notice/);
+  });
+
   test('tests-e2e says a real failure wins over nicht prüfbar hier', () => {
     expect(read('skills', 'tests-e2e', 'SKILL.md')).toMatch(/real failure wins/);
   });

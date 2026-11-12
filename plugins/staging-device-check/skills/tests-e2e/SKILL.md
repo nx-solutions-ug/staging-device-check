@@ -158,6 +158,11 @@ premium purchases, anything that would send mail outside staging.
 1. `node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" run <folder>`, plus `--mailbox demo` when step 2 said so, and
    `--devices iphone` / `--devices android` only if she wants one. If it refuses for the minutes, tell her the
    numbers; add `--confirm-minutes N` only after she agreed to that number.
+   - A run takes several minutes. Start it with the Bash tool in the background (`run_in_background: true`), never a
+     plain call: that one is cut off after 2 minutes, mid-run. Without background runs, give the call a timeout of
+     600000 ms.
+   - Then wait for its completion notice — no polling, no `sleep` — and read its output and exit code. While it
+     runs, tell her it is running and on which devices.
 2. "Umgebung nicht gestartet" in the output: the run stopped after the first test; tell her to open the branch once
    from the staging dashboard.
 3. `node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" report <folder> <TICKET>` writes `stand-abschnitt.md` and prints it. Show
