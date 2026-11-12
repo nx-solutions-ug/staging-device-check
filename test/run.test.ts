@@ -15,6 +15,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { saveConfig } from '../src/config.js';
+import { parseResult } from '../src/report.js';
 import { cleanRunFolder, prepare, realSpawn, runTests, type RunDeps } from '../src/run.js';
 import type { SecretDeps } from '../src/secret.js';
 import { sampleConfig } from './fixtures/config.js';
@@ -527,6 +528,100 @@ test('läuft lange', async () => {
     const report = JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8'));
     expect(JSON.stringify(report)).toContain('läuft lange');
   }, 30_000);
+
+  test('an abort while a check awaits no page call: that check reads abgebrochen, never bestanden', async () => {
+    const h = home();
+    const dir = join(h.root, 'pw');
+    mkdirSync(dir);
+    symlinkSync(join(import.meta.dir, '..', 'node_modules'), join(dir, 'node_modules'), 'dir');
+    writeFileSync(
+      join(dir, 'playwright.config.ts'),
+      `import { defineConfig } from '@playwright/test';
+export default defineConfig({ testDir: '.', testMatch: '*.spec.ts', workers: 1,
+  projects: [{ name: 'safari-iPhone 16' }],
+  reporter: [['json', { outputFile: 'result.json' }]] });\n`,
+    );
+    writeFileSync(
+      join(dir, 'two.spec.ts'),
+      `import { writeFileSync } from 'node:fs';
+import { test } from '@playwright/test';
+test('Konto A (frau)', async () => {
+  await test.step('Eins', async () => {});
+  await test.step('Zwei', async () => {
+    writeFileSync('started', '1');
+    await new Promise((r) => setTimeout(r, 60_000));
+  });
+  await test.step('Drei', async () => {});
+});
+test('Konto B (mann)', async () => {
+  await test.step('Eins', async () => {});
+});\n`,
+    );
+    const stop = new AbortController();
+    const started = setInterval(() => {
+      if (existsSync(join(dir, 'started'))) {
+        clearInterval(started);
+        stop.abort();
+      }
+    }, 100);
+    await realSpawn(
+      join(dir, 'node_modules', '.bin', 'playwright'),
+      ['test'],
+      { cwd: dir, env: { PATH: process.env.PATH, HOME: h.root }, signal: stop.signal },
+      () => {},
+      () => {},
+    );
+    clearInterval(started);
+    const report = JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8'));
+    // the shape this case has: the running step carries no error, the test none either
+    const [a, b] = report.suites[0].specs.map(
+      (sp: { tests: Array<{ results: unknown[] }> }) => sp.tests[0].results,
+    );
+    expect(a).toMatchObject([
+      { status: 'interrupted', steps: [{ title: 'Eins' }, { title: 'Zwei' }], errors: [] },
+    ]);
+    expect((a as Array<{ steps: Array<{ error?: unknown }> }>)[0].steps[1].error).toBeUndefined();
+    expect(b).toEqual([]);
+    const r = parseResult(report, [], {
+      tests: [
+        { title: 'Konto A (frau)', checks: ['Eins', 'Zwei', 'Drei'] },
+        { title: 'Konto B (mann)', checks: ['Eins'] },
+      ],
+      devices: ['iPhone 16'],
+      aborted: 'Strg+C',
+    });
+    expect(r.checks.map((c) => [c.title, c.outcome])).toEqual([
+      ['Konto A (frau): Eins', 'bestanden'],
+      ['Konto A (frau): Zwei', 'abgebrochen'],
+      ['Konto A (frau): Drei', 'abgebrochen'],
+      ['Konto B (mann): Eins', 'abgebrochen'],
+    ]);
+  }, 30_000);
+
+  test('run.json says "sofort beendet" while the SDK runs, and only an end of the run clears it', async () => {
+    const h = home();
+    const during: unknown[] = [];
+    const ended = deps(h.env, {
+      spawn: async (_c, _a, opts) => {
+        during.push(JSON.parse(readFileSync(join(opts.cwd, 'run.json'), 'utf8')).aborted);
+        return 1; // a check failed: a normal end all the same
+      },
+    });
+    const dir = prepare('ACME-1', 'd-acme-de--main.dating.staging.example.test', ended.d);
+    expect(await runTests(dir, {}, ended.d)).toBe(1);
+    expect(during).toEqual(['sofort beendet']);
+    expect(JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8'))).not.toHaveProperty('aborted');
+
+    // the run never reaches its own end (here: the spawn throws; also SIGKILL, hang-up, second Ctrl+C)
+    const crashed = deps(h.env, {
+      spawn: async () => {
+        throw new Error('SDK weg');
+      },
+    });
+    const dir2 = prepare('ACME-1', 'd-acme-de--main.dating.staging.example.test', crashed.d);
+    await expect(runTests(dir2, {}, crashed.d)).rejects.toThrow('SDK weg');
+    expect(JSON.parse(readFileSync(join(dir2, 'run.json'), 'utf8')).aborted).toBe('sofort beendet');
+  });
 
   test('a stale yml copy is removed before anything else', async () => {
     const h = home();

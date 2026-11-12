@@ -7802,7 +7802,8 @@ function appHost(c, project, branch) {
 // src/report.ts
 var NICHT_PRUEFBAR = "nicht pr\xFCfbar hier";
 var ZU_PRUEFEN = "zu pr\xFCfen";
-var INTERNAL = /ECONNREFUSED|ECONNRESET|EPIPE|\bUNAVAILABLE\b|grpc|sdk-platform|\.sock\b/i;
+var INTERNAL = /\b14 UNAVAILABLE\b|\bgrpc\b|sdk-platform|\.sock\b/;
+var NOT_STARTED = /UmgebungNichtGestartet|Umgebung nicht gestartet/;
 var INTERNAL_NOTE = "interner Fehler des Ger\xE4tedienstes (Details im Log)";
 var deviceOf = (project) => /iphone|ipad|ios/i.test(project) ? "iPhone" : "Android";
 var ANSI = /\u001b\[[0-9;]*m/g;
@@ -7850,9 +7851,9 @@ function stepOutcome(step, annotations, clean) {
   return { outcome: "bestanden", note: "" };
 }
 var NOT_RUN = "nicht gelaufen";
+var INTERRUPTED = "Test unterbrochen";
 var namesStep = (a, titles) => titles.some((t) => a.description === t || (a.description ?? "").startsWith(`${t}: `));
 function parseResult(report2, screenshots, plan) {
-  const aborted = plan?.aborted;
   const log = [];
   const clean = (message) => {
     if (!INTERNAL.test(message)) return firstLine(message);
@@ -7866,12 +7867,24 @@ function parseResult(report2, screenshots, plan) {
     outcome: "abgebrochen",
     note: ""
   });
+  const cutByAbort = (last, steps) => {
+    if (!aborted || last.status === "passed" || last.status === "skipped") return false;
+    if (last.status === void 0 || last.status === "interrupted") return true;
+    const errors = [steps.at(-1)?.error?.message ?? "", last.errors?.[0]?.message ?? ""];
+    return errors.some((m) => INTERNAL.test(m) || NOT_STARTED.test(m));
+  };
+  const finished = /* @__PURE__ */ new Set();
+  const key = (spec, device) => `${spec}\0${device}`;
   const specs = [];
   const walk = (suite) => {
     specs.push(...suite.specs ?? []);
     for (const s of suite.suites ?? []) walk(s);
   };
   for (const s of report2.suites ?? []) walk(s);
+  const interrupted = specs.some(
+    (sp) => sp.tests?.some((t) => t.results?.at(-1)?.status === "interrupted")
+  );
+  const aborted = plan?.aborted ?? (interrupted ? INTERRUPTED : void 0);
   const personas = new Set(
     plan ? plan.tests.map((t) => t.title) : specs.filter((sp) => sp.tests?.some((t) => t.results?.at(-1)?.steps?.length)).map((sp) => sp.title ?? "")
   );
@@ -7888,7 +7901,9 @@ function parseResult(report2, screenshots, plan) {
       if (!steps.length || last.status === "skipped") {
         const whole = outcomeOf(t, clean);
         const own = planned(specTitle);
-        if (aborted && last.status !== "skipped" && last.status !== "passed") {
+        const cutTest2 = cutByAbort(last, steps);
+        if (!cutTest2) finished.add(key(specTitle, device));
+        if (cutTest2) {
           if (whole.note && whole.note !== INTERNAL_NOTE) log.push(whole.note);
           for (const c of own.length ? own : [specTitle])
             checks.push(abortedRow(own.length ? prefix2(specTitle, c) : c, device, project));
@@ -7901,11 +7916,15 @@ function parseResult(report2, screenshots, plan) {
         continue;
       }
       const annotations = annotationsOf(t);
-      const cut = aborted && last.status !== "passed" && (last.status === "interrupted" || INTERNAL.test(steps.at(-1)?.error?.message ?? "")) ? steps.at(-1) : void 0;
+      const cutTest = cutByAbort(last, steps);
+      const cut = cutTest && (last.status === "interrupted" || INTERNAL.test(steps.at(-1)?.error?.message ?? "")) ? steps.at(-1) : void 0;
+      if (!cutTest) finished.add(key(specTitle, device));
       for (const step of steps) {
         const title = prefix2(specTitle, step.title ?? "");
-        if (step === cut && step.error) {
-          clean(step.error.message ?? "");
+        if (step === cut) {
+          const message = step.error?.message;
+          if (message && !INTERNAL.test(message)) log.push(message.replace(ANSI, "").trim());
+          else if (message) clean(message);
           checks.push(abortedRow(title, device, project));
         } else checks.push({ title, device, project, ...stepOutcome(step, annotations, clean) });
       }
@@ -7916,7 +7935,7 @@ function parseResult(report2, screenshots, plan) {
           problems.push(`Notiz passt zu keiner Pr\xFCfung: ${a.description ?? ""}`);
       if (last.status !== "passed" && !steps.some((s) => s.error)) {
         const message = last.errors?.[0]?.message ?? last.status ?? "";
-        if (aborted) log.push(firstLine(message));
+        if (cutTest) log.push(firstLine(message));
         else problems.push(clean(message));
       }
       if (problems.length)
@@ -7937,7 +7956,7 @@ function parseResult(report2, screenshots, plan) {
           const title = prefix2(pt.title, c);
           if (!checks.some((x) => x.title === title && x.device === device))
             checks.push(
-              aborted ? abortedRow(title, device, "") : { title, device, project: "", outcome: "nicht bestanden", note: NOT_RUN }
+              aborted && !finished.has(key(pt.title, device)) ? abortedRow(title, device, "") : { title, device, project: "", outcome: "nicht bestanden", note: NOT_RUN }
             );
         }
     const order = /* @__PURE__ */ new Map();
@@ -23044,6 +23063,7 @@ function writeGatePassword(value, d = realSecretDeps()) {
 // src/run.ts
 var TICKET = /^[A-Z][A-Z0-9]+-[0-9]+$/;
 var MINUTES_PER_TEST = 1.5;
+var HARD_STOP = "sofort beendet";
 var RUN_YML = ".browserstack.run.yml";
 var TOKENS = ".run-tokens";
 var pad2 = (n) => String(n).padStart(2, "0");
@@ -23194,7 +23214,7 @@ function readPlan(dir) {
   }
   return plan;
 }
-var NOT_STARTED = /UmgebungNichtGestartet|Umgebung nicht gestartet/;
+var NOT_STARTED2 = /UmgebungNichtGestartet|Umgebung nicht gestartet/;
 var minutesText = (m) => `${Math.round(m * 10) / 10}`.replace(".", ",");
 async function runTests(dir, opts, d) {
   rmSync3(join5(dir, RUN_YML), { force: true });
@@ -23285,7 +23305,7 @@ async function runTests(dir, opts, d) {
     }
     writeFileSync3(
       join5(dir, "run.json"),
-      `${JSON.stringify({ ...meta, devices: chosen, plan: planned.tests }, null, 2)}
+      `${JSON.stringify({ ...meta, devices: chosen, plan: planned.tests, aborted: HARD_STOP }, null, 2)}
 `
     );
     const stop = new AbortController();
@@ -23294,7 +23314,7 @@ async function runTests(dir, opts, d) {
     if (opts.signal?.aborted) stop.abort();
     else opts.signal?.addEventListener("abort", outside, { once: true });
     const watch = (write) => (line) => {
-      if (NOT_STARTED.test(line)) {
+      if (NOT_STARTED2.test(line)) {
         notStarted = true;
         stop.abort();
       }
@@ -23326,10 +23346,13 @@ async function runTests(dir, opts, d) {
     out.end();
     err.end();
     opts.signal?.removeEventListener("abort", outside);
-    if (stop.signal.aborted) {
-      const runFile = join5(dir, "run.json");
+    const runFile = join5(dir, "run.json");
+    const { aborted: _running, ...ended } = readMeta(dir);
+    if (!stop.signal.aborted) writeFileSync3(runFile, `${JSON.stringify(ended, null, 2)}
+`);
+    else {
       const aborted = notStarted ? "Umgebung nicht gestartet" : "Strg+C";
-      writeFileSync3(runFile, `${JSON.stringify({ ...readMeta(dir), aborted }, null, 2)}
+      writeFileSync3(runFile, `${JSON.stringify({ ...ended, aborted }, null, 2)}
 `);
       d.err(
         notStarted ? `Lauf abgebrochen: ${meta.host} zeigt nicht die App (Umgebung nicht gestartet). Die \xFCbrigen Tests wurden nicht gestartet.` : "Lauf abgebrochen (Strg+C oder Signal). Die \xFCbrigen Tests wurden nicht gestartet; der Run-Ordner ist aufger\xE4umt."

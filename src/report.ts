@@ -55,8 +55,14 @@ export type PlaywrightReport = { suites?: PwSuite[] };
 const NICHT_PRUEFBAR = 'nicht prüfbar hier';
 const ZU_PRUEFEN = 'zu prüfen';
 
-/** Errors of the device service's own plumbing (its local socket, gRPC), not of the app: never a row's text. */
-const INTERNAL = /ECONNREFUSED|ECONNRESET|EPIPE|\bUNAVAILABLE\b|grpc|sdk-platform|\.sock\b/i;
+/**
+ * Errors of the device service's own plumbing (its local socket, gRPC), not of the app: never a row's text.
+ * Case-sensitive and only the SDK's own words: an app's "503 Service Unavailable" or the harness's own
+ * "connect ECONNREFUSED <host>:443" stays a normal failure.
+ */
+const INTERNAL = /\b14 UNAVAILABLE\b|\bgrpc\b|sdk-platform|\.sock\b/;
+/** The harness's own stop ("Umgebung nicht gestartet"): the abort's reason, not a check's failure. */
+const NOT_STARTED = /UmgebungNichtGestartet|Umgebung nicht gestartet/;
 const INTERNAL_NOTE = 'interner Fehler des Gerätedienstes (Details im Log)';
 
 const deviceOf = (project: string): DeviceColumn =>
@@ -136,6 +142,8 @@ export type RunPlan = {
 };
 
 const NOT_RUN = 'nicht gelaufen';
+/** the reason in the heading when a test was interrupted but run.json names no abort */
+const INTERRUPTED = 'Test unterbrochen';
 
 /** Whether an annotation of a check names one of these step titles (`<step>` or `<step>: <rest>`). */
 const namesStep = (a: Annotation, titles: string[]) =>
@@ -146,7 +154,6 @@ export function parseResult(
   screenshots: string[],
   plan?: RunPlan,
 ): RunResult {
-  const aborted = plan?.aborted;
   const log: string[] = [];
   // a row's note: the first line, or a neutral text when the device service's plumbing failed (raw text to the log)
   const clean = (message: string) => {
@@ -161,12 +168,30 @@ export function parseResult(
     outcome: 'abgebrochen',
     note: '',
   });
+  /**
+   * Whether the abort cut this test: it never started (no result), was interrupted, or failed on the device
+   * service's plumbing or the harness's own stop. A test that had ended with a real failure keeps it.
+   */
+  const cutByAbort = (last: PwResult, steps: PwStep[]) => {
+    if (!aborted || last.status === 'passed' || last.status === 'skipped') return false;
+    if (last.status === undefined || last.status === 'interrupted') return true;
+    const errors = [steps.at(-1)?.error?.message ?? '', last.errors?.[0]?.message ?? ''];
+    return errors.some((m) => INTERNAL.test(m) || NOT_STARTED.test(m));
+  };
+  // tests (persona + device column) that ran to their end: a planned check missing there did not run, abort or not
+  const finished = new Set<string>();
+  const key = (spec: string, device: DeviceColumn) => `${spec}\u0000${device}`;
   const specs: PwSpec[] = [];
   const walk = (suite: PwSuite) => {
     specs.push(...(suite.specs ?? []));
     for (const s of suite.suites ?? []) walk(s);
   };
   for (const s of report.suites ?? []) walk(s);
+  // an interrupted test means the run was stopped before its end, even when run.json does not say so
+  const interrupted = specs.some((sp) =>
+    sp.tests?.some((t) => t.results?.at(-1)?.status === 'interrupted'),
+  );
+  const aborted = plan?.aborted ?? (interrupted ? INTERRUPTED : undefined);
   // with several persona tests, a check row names its persona test
   const personas = new Set(
     plan
@@ -189,8 +214,11 @@ export function parseResult(
       if (!steps.length || last.status === 'skipped') {
         const whole = outcomeOf(t, clean);
         const own = planned(specTitle);
-        // stopped before its first check: what it planned did not finish; the error is the abort's, not the app's
-        if (aborted && last.status !== 'skipped' && last.status !== 'passed') {
+        const cutTest = cutByAbort(last, steps);
+        if (!cutTest) finished.add(key(specTitle, device));
+        // stopped before its first check: what it planned did not finish; the error is the abort's, not the app's.
+        // A test that had already failed for real keeps its failure.
+        if (cutTest) {
           if (whole.note && whole.note !== INTERNAL_NOTE) log.push(whole.note);
           for (const c of own.length ? own : [specTitle])
             checks.push(abortedRow(own.length ? prefix(specTitle, c) : c, device, project));
@@ -204,17 +232,21 @@ export function parseResult(
         continue;
       }
       const annotations = annotationsOf(t);
-      // the check that was running when the run was stopped did not finish
+      const cutTest = cutByAbort(last, steps);
+      // the check that was running when the run was stopped did not finish, error or not: an interrupted check that
+      // awaited no page call carries no error, and is still never a pass
       const cut =
-        aborted &&
-        last.status !== 'passed' &&
+        cutTest &&
         (last.status === 'interrupted' || INTERNAL.test(steps.at(-1)?.error?.message ?? ''))
           ? steps.at(-1)
           : undefined;
+      if (!cutTest) finished.add(key(specTitle, device));
       for (const step of steps) {
         const title = prefix(specTitle, step.title ?? '');
-        if (step === cut && step.error) {
-          clean(step.error.message ?? '');
+        if (step === cut) {
+          const message = step.error?.message;
+          if (message && !INTERNAL.test(message)) log.push(message.replace(ANSI, '').trim());
+          else if (message) clean(message);
           checks.push(abortedRow(title, device, project));
         } else checks.push({ title, device, project, ...stepOutcome(step, annotations, clean) });
       }
@@ -225,10 +257,10 @@ export function parseResult(
         if ((a.type === ZU_PRUEFEN || a.type === NICHT_PRUEFBAR) && !namesStep(a, titles))
           problems.push(`Notiz passt zu keiner Prüfung: ${a.description ?? ''}`);
       // a failure outside every step (sign-in, a hard error between steps) must not vanish
-      // (after an abort that failure is the abort's: log only)
+      // (in a test the abort cut, that failure is the abort's: log only)
       if (last.status !== 'passed' && !steps.some((s) => s.error)) {
         const message = last.errors?.[0]?.message ?? last.status ?? '';
-        if (aborted) log.push(firstLine(message));
+        if (cutTest) log.push(firstLine(message));
         else problems.push(clean(message));
       }
       if (problems.length)
@@ -250,7 +282,7 @@ export function parseResult(
           const title = prefix(pt.title, c);
           if (!checks.some((x) => x.title === title && x.device === device))
             checks.push(
-              aborted
+              aborted && !finished.has(key(pt.title, device))
                 ? abortedRow(title, device, '')
                 : { title, device, project: '', outcome: 'nicht bestanden', note: NOT_RUN },
             );
