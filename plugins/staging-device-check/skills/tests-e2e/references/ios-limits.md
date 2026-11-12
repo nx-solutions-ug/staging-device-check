@@ -23,6 +23,10 @@ From the probe and the SDK live checks on iPhone 16 / iOS 18 and Samsung Galaxy 
 - `page.screenshot` shows only the web content, without the Safari toolbar.
 - Not supported: console logs, Playwright logs, geolocation, `resolution`. Only Safari; there is no Chrome on iPhone.
 - One browser context per session: each persona is its own test.
+- **The browser language is English**, and Playwright's `locale` has no effect. An app that follows the browser
+  language shows English. BrowserStack's `language`/`locale` capabilities exist, but only on a paid plan. Carry a
+  language cookie of the app over from the local look with `appCookie` (SKILL.md, "Language"); otherwise texts are
+  "nicht prüfbar hier (Gerätesprache)".
 
 ## Android
 

@@ -16,6 +16,7 @@ import {
   mintRunToken,
   readGatePassword,
 } from './lib.js';
+import { appCookieParam } from './app-cookie.js';
 import { beginCheck, noteLayout, unmeasured } from './check-state.js';
 import { evaluateWith } from './evaluate.js';
 import { measure, type LayoutOpts } from './measure.js';
@@ -61,6 +62,8 @@ type Fixtures = {
   account: (label: string) => Promise<void>;
   shot: (step: string) => Promise<string>;
   layout: (opts: LayoutOpts & { keyboard?: boolean }) => Promise<RuleResult[]>;
+  /** sets a preference cookie the app reads (its language) on the confirmed host — before the first navigation */
+  appCookie: (name: string, value: string) => Promise<void>;
 };
 
 export const test = base.extend<Options & Fixtures>({
@@ -151,6 +154,12 @@ export const test = base.extend<Options & Fixtures>({
       );
       await page.screenshot({ path });
       return path;
+    });
+  },
+
+  appCookie: async ({ context }, use) => {
+    await use(async (name, value) => {
+      await context.addCookies([appCookieParam(need('SDC_HOST'), name, value)]);
     });
   },
 

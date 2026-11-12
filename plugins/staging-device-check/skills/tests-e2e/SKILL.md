@@ -48,8 +48,9 @@ attachments (design screenshots), and the **latest comment whose first line star
 1. `node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" local-state` for a fresh gate session. If the Playwright MCP was already
    running, it needs `/mcp` → reconnect to pick it up.
 2. With the Playwright MCP (it starts at 393×852), open `https://<host>/` and the pages the ticket touches. Learn the
-   steps, labels, roles and states from the live page. Record selectors and visible texts only — no cookies, no
-   tokens, no page dumps in the chat.
+   steps, labels, roles and states from the live page. Record selectors and visible texts only — no tokens, no page
+   dumps in the chat, and of the cookies only the name and value of a language preference the page can read (step
+   4, "Language").
 3. If the host shows a provisioning page or a 404 instead of the app: the environment is not started. Tell her to
    open the branch once from the staging dashboard (the plugin never starts environments), and stop.
 
@@ -121,7 +122,14 @@ Rules for the spec:
 - `check()` fails closed on iOS: when `layout()` inside it measured nothing or returned "nicht prüfbar hier", the
   check is "nicht prüfbar hier" there, even without `{ keyboard: true }`. A real failure wins: any other failed
   assertion in the same check (a missing element, a wrong text) makes it "nicht bestanden".
-- Navigate with `staging.goto(path)`; it refuses other hosts. Never set cookies yourself.
+- Navigate with `staging.goto(path)`; it refuses other hosts. Never set sign-in, session or gate cookies.
+- **Language.** BrowserStack's iPhone runs in English and ignores Playwright's `locale`.
+  - If the local look shows that the app keeps its language in a cookie of its own (readable by the page, set on
+    the first visit, a short value such as `de`), carry it over with the `appCookie` fixture before the first
+    navigation: `await appCookie('<name>', '<value>')`. The device then shows the tester's language, and text
+    checks stay possible.
+  - Without such a cookie: select by role, id or structure, not by visible text. A check that can only compare
+    texts is "nicht prüfbar hier (Gerätesprache)" on the iPhone; say so in the list and in the section.
 - Map the status table: every `✅ da` row → a check; every `⚠️ abweichend` row → a check against the described
   deviation, not the original ticket text; `✖` rows → only listed as "nicht in diesem Ticket", no check.
 - Each check is one of:

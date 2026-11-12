@@ -99,6 +99,19 @@ describe('skills', () => {
     expect(step).toMatch(/completion notice/);
   });
 
+  test('tests-e2e carries the app language over from the local look, generically', () => {
+    const md = read('skills', 'tests-e2e', 'SKILL.md');
+    expect(md).toContain('appCookie(');
+    expect(md).toMatch(/local look/);
+    expect(md).toContain('nicht prüfbar hier (Gerätesprache)');
+    expect(md).not.toMatch(/Never set cookies yourself\./);
+    const ios = read('skills', 'tests-e2e', 'references', 'ios-limits.md');
+    expect(ios).toMatch(/English/);
+    expect(ios).toMatch(/paid plan/i);
+    // no app's cookie name in the plugin
+    expect(md + ios).not.toContain('_locale');
+  });
+
   test('tests-e2e says a real failure wins over nicht prüfbar hier', () => {
     expect(read('skills', 'tests-e2e', 'SKILL.md')).toMatch(/real failure wins/);
   });
