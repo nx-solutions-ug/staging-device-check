@@ -7,6 +7,11 @@
 - `detail` is German, with the measured numbers.
 - Each rule has a 1 px tolerance.
 - A rule whose element is absent is left out: no action bar, no R3/R4.
+- Before measuring it waits, at most about 6 s, until the page is at rest: the requested elements' boxes, the
+  visual viewport and the scroll position agree twice in a row, no finite animation runs on them, and every one
+  that takes room is shown (an action bar with a shown button). Not at rest by then: every rule is
+  `nicht bestanden`, with "Seite kam in … s nicht zur Ruhe (…)" in front. The iOS keyboard phase does not wait.
+- It first looks for the consent banner (`consentButton`) and dismisses it.
 
 ```ts
 const results = await layout({
