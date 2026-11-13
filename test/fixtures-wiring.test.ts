@@ -53,6 +53,12 @@ describe('the helpers are wired into the fixtures', () => {
     expect(fixture('closeKeyboard', 'tap')).toContain('closeKeyboard(');
   });
 
+  test('account(): signIn reads the page address, so it can wait until the login page is left', () => {
+    const account = fixture('account', 'shot');
+    expect(account).toContain('await signIn(page, account, {');
+    expect(account).toContain('currentUrl: () => page.url(),');
+  });
+
   test('the consent label: the settings win over the spec option', () => {
     expect(fixture('consent', 'staging')).toContain(
       "consentButtonFor(loadConfig(), need('SDC_HOST'), consentButton)",
