@@ -120,6 +120,7 @@ export const test = base.extend<Options & Fixtures>({
   consent: async ({ page, consentButton }, use) => {
     const label = consentButtonFor(loadConfig(), need('SDC_HOST'), consentButton);
     const button = (l: string) => page.getByRole('button', { name: l, exact: true }).first();
+    const start = Date.now();
     await use(
       consentBanner(label, {
         shown: (l) => evaluateWith(page, consentShownInPage, l),
@@ -133,6 +134,7 @@ export const test = base.extend<Options & Fixtures>({
           await button(l)
             .waitFor({ state: 'hidden', timeout: 10_000 })
             .catch(() => undefined);
+          console.error(`Einwilligungsbanner weggetippt nach ${Date.now() - start} ms`);
         },
       }),
     );
