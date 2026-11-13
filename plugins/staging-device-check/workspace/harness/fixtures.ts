@@ -20,6 +20,7 @@ import {
   mintRunToken,
   readGatePassword,
 } from './lib.js';
+import { addressInPage } from './address.js';
 import { appCookieParam } from './app-cookie.js';
 import { beginCheck, noteLayout, unmeasured } from './check-state.js';
 import { consentBanner, consentShownInPage, type Consent } from './consent.js';
@@ -41,6 +42,7 @@ import { evaluateRules, type RuleResult } from './rules.js';
 import { NichtPruefbarHier, signIn, type Mailbox, type SignInSelectors } from './signin.js';
 import { withStaging, type Staging } from './staging.js';
 
+export { addressInPage, pathInPage } from './address.js';
 export { evaluateWith } from './evaluate.js';
 export { shotName, slug, stepNote } from './names.js';
 
@@ -152,7 +154,8 @@ export const test = base.extend<Options & Fixtures>({
             lastStatus = r ? r.status() : null;
           },
           landing: async () => ({
-            url: page.url(),
+            // after a full page.goto; page.url() only when the page cannot answer
+            url: await addressInPage(page).catch(() => page.url()),
             status: lastStatus,
             title: await page.title().catch(() => ''),
             text: await page
@@ -196,7 +199,7 @@ export const test = base.extend<Options & Fixtures>({
       try {
         await signIn(page, account, {
           goto: (path) => staging.goto(path),
-          currentUrl: () => page.url(),
+          currentUrl: () => addressInPage(page),
           loginPath,
           selectors: signInSelectors,
           runDir: need('SDC_RUN_DIR'),

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 // The fixtures need a browser, which CI does not install: these guards read their source, as check.test.ts does.
@@ -53,15 +53,62 @@ describe('the helpers are wired into the fixtures', () => {
     expect(fixture('closeKeyboard', 'tap')).toContain('closeKeyboard(');
   });
 
-  test('account(): signIn reads the page address, so it can wait until the login page is left', () => {
+  test('account(): signIn reads the address in the page (page.url() lags behind in-app navigation on iOS)', () => {
     const account = fixture('account', 'shot');
     expect(account).toContain('await signIn(page, account, {');
-    expect(account).toContain('currentUrl: () => page.url(),');
+    expect(account).toContain('currentUrl: () => addressInPage(page),');
+    expect(account).not.toContain('page.url()');
+  });
+
+  test('staging: the landing check reads the address in the page; page.url() only when the page cannot answer', () => {
+    const staging = fixture('staging', 'account');
+    expect(staging).toContain('url: await addressInPage(page).catch(() => page.url()),');
+  });
+
+  test('pathInPage is offered to specs', () => {
+    expect(src).toContain("export { addressInPage, pathInPage } from './address.js';");
   });
 
   test('the consent label: the settings win over the spec option', () => {
     expect(fixture('consent', 'staging')).toContain(
       "consentButtonFor(loadConfig(), need('SDC_HOST'), consentButton)",
     );
+  });
+});
+
+// Playwright's own address (page.url(), toHaveURL, waitForURL) does not follow history.pushState on a real iPhone
+// (iOS 27, Safari): no harness helper may wait on it. The one read left is the landing fallback above.
+describe("no harness helper reads Playwright's own address", () => {
+  const dir = join(
+    import.meta.dir,
+    '..',
+    'plugins',
+    'staging-device-check',
+    'workspace',
+    'harness',
+  );
+  const sources = readdirSync(dir)
+    .filter((f) => f.endsWith('.ts') && !f.endsWith('.d.ts'))
+    // code only: the comments explain why page.url() is not used
+    .map((f) => ({
+      f,
+      text: readFileSync(join(dir, f), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/.*$/gm, ''),
+    }));
+
+  test('url() appears only as the landing fallback in fixtures.ts', () => {
+    const hits = sources.flatMap(({ f, text }) =>
+      text
+        .split('\n')
+        .filter((line) => /\.url\(\)/.test(line))
+        .map((line) => `${f}: ${line.trim()}`),
+    );
+    expect(hits).toEqual(['fixtures.ts: url: await addressInPage(page).catch(() => page.url()),']);
+  });
+
+  test('no toHaveURL or waitForURL', () => {
+    for (const { f, text } of sources)
+      expect(`${f}: ${/toHaveURL|waitForURL/.test(text)}`).toBe(`${f}: false`);
   });
 });

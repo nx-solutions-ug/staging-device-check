@@ -16,6 +16,10 @@ From the probe and the SDK live checks on iPhone 16 / iOS 18 and Samsung Galaxy 
 - **`evaluate` arguments are dropped.** `page.evaluate(fn, arg)` runs as `fn()`, and the same goes for `$eval`,
   `$$eval`, `evaluateAll`, `evaluateHandle` and `waitForFunction` with an argument. Use `evaluateWith(page, fn, arg)`
   from the harness; `run` refuses a spec that passes an argument.
+- **Playwright's address does not follow in-app navigation (iOS 27).** On an iPhone 15 Pro with iOS 27, `page.url()`
+  stayed on the address of the last full load after the app moved on with `history.pushState`; on iOS 17 it
+  followed. `toHaveURL` and `waitForURL` poll the same value. The harness reads `location.href` in the page
+  (`account()`, the landing check); specs poll `pathInPage(page)` (SKILL.md, step 4).
 - **The on-screen keyboard never opens through Playwright.** Every check that needs it is `nicht prüfbar hier` —
   "auf eigenem iPhone prüfen" — never a pass.
 - **Text input: no single method works everywhere.** `keyboard.type` writes nothing. `pressSequentially` worked on

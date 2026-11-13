@@ -194,3 +194,14 @@ describe('README', () => {
     );
   });
 });
+
+describe('address checks in specs', () => {
+  test('SKILL.md: poll pathInPage from the harness, never toHaveURL, waitForURL or page.url()', () => {
+    const md = read('skills', 'tests-e2e', 'SKILL.md');
+    expect(md).toContain('No `expect(page).toHaveURL(…)`,\n  `page.waitForURL(…)` or `page.url()`');
+    expect(md).toContain("await expect.poll(() => pathInPage(page)).toBe('/dashboard')");
+    expect(read('skills', 'tests-e2e', 'references', 'ios-limits.md')).toContain(
+      "**Playwright's address does not follow in-app navigation (iOS 27).**",
+    );
+  });
+});

@@ -9,6 +9,10 @@ import {
   type SignInDeps,
   type SignInPage,
 } from '../plugins/staging-device-check/workspace/harness/signin.js';
+import {
+  addressInPage,
+  type AddressPage,
+} from '../plugins/staging-device-check/workspace/harness/address.js';
 
 const quickAccount: TestAccount = {
   label: 'Tester A',
@@ -353,6 +357,56 @@ describe('signIn waits until the login is finished', () => {
     await signIn(h.page().page, quickAccount, deps);
     expect(failures).toBeGreaterThan(2);
     expect(where(h)).toBe('/discover');
+  });
+
+  test('a device whose page.url() lags behind the in-app navigation: signIn reads the address in the page', async () => {
+    const h = harness();
+    h.app.delayMs = 2_000;
+    // page.url() stays on the login page (it does not follow history.pushState); location.href in the page moves on
+    const device: AddressPage & { url(): string } = {
+      url: () => `${h.origin}/login`,
+      evaluate: async (fn) => {
+        expect(fn.length).toBe(0);
+        return h.currentUrl();
+      },
+    };
+    await signIn(h.page().page, quickAccount, h.deps({ currentUrl: () => addressInPage(device) }));
+    expect(where(h)).toBe('/discover');
+    expect(device.url()).toBe(`${h.origin}/login`);
+  });
+
+  test('in-page reads that fail or hang mid-navigation are tried again until the app has left', async () => {
+    const h = harness();
+    h.app.delayMs = 1_000;
+    let reads = 0;
+    const device: AddressPage = {
+      evaluate: async () => {
+        reads++;
+        if (reads === 1) throw new Error('Execution context was destroyed');
+        if (reads === 2) return new Promise(() => {}); // hangs while the page swaps
+        return h.currentUrl();
+      },
+    };
+    await signIn(
+      h.page().page,
+      quickAccount,
+      h.deps({ currentUrl: () => addressInPage(device, 5) }),
+    );
+    expect(reads).toBeGreaterThan(2);
+    expect(where(h)).toBe('/discover');
+  });
+
+  test('in-page reads that keep hanging end in the German error, not a test timeout', async () => {
+    const h = harness();
+    const device: AddressPage = { evaluate: () => new Promise(() => {}) };
+    const err = await signIn(
+      h.page().page,
+      quickAccount,
+      h.deps({ currentUrl: () => addressInPage(device, 1) }),
+    ).catch((e) => e);
+    expect(String(err?.message)).toBe(
+      'Anmeldung nicht abgeschlossen: Die Seite steht nach 20 s noch auf /login.',
+    );
   });
 
   test('a second sign-in waits again, after its own tap', async () => {
