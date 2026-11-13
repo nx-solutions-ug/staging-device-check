@@ -5,3 +5,4 @@ export { readGatePassword } from './secret.js';
 export { GateError, gateLogin, mintRunToken, type RunToken } from './gate.js';
 export { latestLoginCode, mailboxSnapshot } from './mailpit.js';
 export { redactor } from './redact.js';
+export { consentButtonFor } from './hosts.js';

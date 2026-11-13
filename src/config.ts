@@ -31,6 +31,8 @@ export type Config = {
   tokenMinutes: number;
   /** BrowserStack minutes of the plan (the API reports none); remaining = planMinutes − used, an estimate */
   planMinutes: number;
+  /** per project label: the consent banner's button to tap; wins over the label a spec took from the local look */
+  consentButtons?: Record<string, string>;
 };
 
 export const defaults: Pick<
@@ -74,6 +76,17 @@ function validate(c: Config): Config {
     !Object.values(c.projects).every(isString)
   ) {
     throw new Error('Einstellungen: projects muss Anzeigenamen auf Labels abbilden.');
+  }
+  if (
+    c.consentButtons !== undefined &&
+    (!c.consentButtons ||
+      typeof c.consentButtons !== 'object' ||
+      Array.isArray(c.consentButtons) ||
+      !Object.values(c.consentButtons).every((v) => isString(v) && v.trim() !== ''))
+  ) {
+    throw new Error(
+      'Einstellungen: consentButtons muss Projekt-Labels auf die Beschriftung eines Knopfs abbilden.',
+    );
   }
   if (!Array.isArray(c.accounts)) throw new Error('Einstellungen: accounts muss eine Liste sein.');
   for (const a of c.accounts) {

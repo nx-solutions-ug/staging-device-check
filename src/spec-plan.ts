@@ -1,7 +1,9 @@
 /**
  * The checks a generated spec plans: one `test` per persona, one `check('<Titel>', …)` per check. `run` stores them in
  * run.json before the SDK starts, so `report` can list every planned check that never ran. Raw `test.step` calls are
- * refused: only `check()` keeps a step's title and its annotations in one place.
+ * refused: only `check()` keeps a step's title and its annotations in one place. Raw `.tap()`, `.fill()` and
+ * `.pressSequentially()` are refused too: on real phones only the harness's `tap()` and `typeInto()` hold (keyboard
+ * over the button, a late consent banner, iOS input).
  */
 import { parse } from '@babel/parser';
 
@@ -25,6 +27,20 @@ const isTestCall = (callee: Node) =>
     (callee.object as Node).name === 'test' &&
     ['only', 'fixme', 'fail', 'slow'].includes(((callee.property as Node).name as string) ?? ''));
 
+/** raw Playwright input → the harness helper that replaces it */
+const RAW_INPUT: Record<string, string> = {
+  tap: 'tap(locator)',
+  fill: 'typeInto(selector, Wert)',
+  pressSequentially: 'typeInto(selector, Wert)',
+};
+
+const memberName = (callee: Node): string | null =>
+  (callee.type === 'MemberExpression' || callee.type === 'OptionalMemberExpression') &&
+  (callee.property as Node).type === 'Identifier' &&
+  !callee.computed
+    ? ((callee.property as Node).name as string)
+    : null;
+
 const isStepCall = (callee: Node) =>
   callee.type === 'MemberExpression' &&
   (callee.property as Node).type === 'Identifier' &&
@@ -41,6 +57,13 @@ export function specPlan(source: string, file: string): SpecPlan {
     }
     const node = n as Node;
     let inner = current;
+    if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression') {
+      const raw = memberName(node.callee as Node);
+      if (raw && Object.hasOwn(RAW_INPUT, raw))
+        plan.problems.push(
+          `${file}:${node.loc?.start.line ?? '?'}: .${raw}() direkt — bitte ${RAW_INPUT[raw]} aus der Harness verwenden`,
+        );
+    }
     if (node.type === 'CallExpression') {
       const callee = node.callee as Node;
       const args = node.arguments as Node[];

@@ -7596,6 +7596,11 @@ function validate(c) {
   if (!c.projects || typeof c.projects !== "object" || Array.isArray(c.projects) || !Object.values(c.projects).every(isString)) {
     throw new Error("Einstellungen: projects muss Anzeigenamen auf Labels abbilden.");
   }
+  if (c.consentButtons !== void 0 && (!c.consentButtons || typeof c.consentButtons !== "object" || Array.isArray(c.consentButtons) || !Object.values(c.consentButtons).every((v) => isString(v) && v.trim() !== ""))) {
+    throw new Error(
+      "Einstellungen: consentButtons muss Projekt-Labels auf die Beschriftung eines Knopfs abbilden."
+    );
+  }
   if (!Array.isArray(c.accounts)) throw new Error("Einstellungen: accounts muss eine Liste sein.");
   for (const a of c.accounts) {
     for (const k of ["label", "email", "persona", "project"]) {
@@ -9738,13 +9743,13 @@ var FlowErrorTemplates = {
   DeclareClassFieldInitializer: "Initializers are not allowed in fields with the `declare` modifier.",
   DuplicateDeclareModuleExports: "Duplicate `declare module.exports` statement.",
   EnumBooleanMemberNotInitialized: ({
-    memberName,
+    memberName: memberName2,
     enumName
-  }) => `Boolean enum members need to be initialized. Use either \`${memberName} = true,\` or \`${memberName} = false,\` in enum \`${enumName}\`.`,
+  }) => `Boolean enum members need to be initialized. Use either \`${memberName2} = true,\` or \`${memberName2} = false,\` in enum \`${enumName}\`.`,
   EnumDuplicateMemberName: ({
-    memberName,
+    memberName: memberName2,
     enumName
-  }) => `Enum member names need to be unique, but the name \`${memberName}\` has already been used before in enum \`${enumName}\`.`,
+  }) => `Enum member names need to be unique, but the name \`${memberName2}\` has already been used before in enum \`${enumName}\`.`,
   EnumInconsistentMemberValues: ({
     enumName
   }) => `Enum \`${enumName}\` has inconsistent member initializers. Either use no initializers, or consistently use literals (either booleans, numbers, or strings) for all member initializers.`,
@@ -9757,26 +9762,26 @@ var FlowErrorTemplates = {
   }) => `Supplied enum type is not valid. Use one of \`boolean\`, \`number\`, \`string\`, or \`symbol\` in enum \`${enumName}\`.`,
   EnumInvalidMemberInitializerPrimaryType: ({
     enumName,
-    memberName,
+    memberName: memberName2,
     explicitType
-  }) => `Enum \`${enumName}\` has type \`${explicitType}\`, so the initializer of \`${memberName}\` needs to be a ${explicitType} literal.`,
+  }) => `Enum \`${enumName}\` has type \`${explicitType}\`, so the initializer of \`${memberName2}\` needs to be a ${explicitType} literal.`,
   EnumInvalidMemberInitializerSymbolType: ({
     enumName,
-    memberName
-  }) => `Symbol enum members cannot be initialized. Use \`${memberName},\` in enum \`${enumName}\`.`,
+    memberName: memberName2
+  }) => `Symbol enum members cannot be initialized. Use \`${memberName2},\` in enum \`${enumName}\`.`,
   EnumInvalidMemberInitializerUnknownType: ({
     enumName,
-    memberName
-  }) => `The enum member initializer for \`${memberName}\` needs to be a literal (either a boolean, number, or string) in enum \`${enumName}\`.`,
+    memberName: memberName2
+  }) => `The enum member initializer for \`${memberName2}\` needs to be a literal (either a boolean, number, or string) in enum \`${enumName}\`.`,
   EnumInvalidMemberName: ({
     enumName,
-    memberName,
+    memberName: memberName2,
     suggestion
-  }) => `Enum member names cannot start with lowercase 'a' through 'z'. Instead of using \`${memberName}\`, consider using \`${suggestion}\`, in enum \`${enumName}\`.`,
+  }) => `Enum member names cannot start with lowercase 'a' through 'z'. Instead of using \`${memberName2}\`, consider using \`${suggestion}\`, in enum \`${enumName}\`.`,
   EnumNumberMemberNotInitialized: ({
     enumName,
-    memberName
-  }) => `Number enum members need to be initialized, e.g. \`${memberName} = 1\` in enum \`${enumName}\`.`,
+    memberName: memberName2
+  }) => `Number enum members need to be initialized, e.g. \`${memberName2} = 1\` in enum \`${enumName}\`.`,
   EnumStringMemberInconsistentlyInitialized: ({
     enumName
   }) => `String enum members need to consistently either all use initializers, or use no initializers, in enum \`${enumName}\`.`,
@@ -11871,28 +11876,28 @@ var flow = (superClass) => class FlowParserMixin extends superClass {
         id,
         init
       } = this.flowEnumMemberRaw();
-      const memberName = id.name;
-      if (memberName === "") {
+      const memberName2 = id.name;
+      if (memberName2 === "") {
         continue;
       }
-      if (/^[a-z]/.test(memberName)) {
+      if (/^[a-z]/.test(memberName2)) {
         this.raise(FlowErrors.EnumInvalidMemberName, id, {
-          memberName,
-          suggestion: memberName[0].toUpperCase() + memberName.slice(1),
+          memberName: memberName2,
+          suggestion: memberName2[0].toUpperCase() + memberName2.slice(1),
           enumName
         });
       }
-      if (seenNames.has(memberName)) {
+      if (seenNames.has(memberName2)) {
         this.raise(FlowErrors.EnumDuplicateMemberName, id, {
-          memberName,
+          memberName: memberName2,
           enumName
         });
       }
-      seenNames.add(memberName);
+      seenNames.add(memberName2);
       const context = {
         enumName,
         explicitType,
-        memberName
+        memberName: memberName2
       };
       memberNode.id = id;
       switch (init.type) {
@@ -22992,6 +22997,12 @@ var literal = (n) => {
   return null;
 };
 var isTestCall = (callee) => callee.type === "Identifier" && callee.name === "test" || callee.type === "MemberExpression" && callee.object.type === "Identifier" && callee.object.name === "test" && ["only", "fixme", "fail", "slow"].includes(callee.property.name ?? "");
+var RAW_INPUT = {
+  tap: "tap(locator)",
+  fill: "typeInto(selector, Wert)",
+  pressSequentially: "typeInto(selector, Wert)"
+};
+var memberName = (callee) => (callee.type === "MemberExpression" || callee.type === "OptionalMemberExpression") && callee.property.type === "Identifier" && !callee.computed ? callee.property.name : null;
 var isStepCall = (callee) => callee.type === "MemberExpression" && callee.property.type === "Identifier" && callee.property.name === "step";
 function specPlan(source, file) {
   const ast = parse2(source, { sourceType: "module", plugins: ["typescript"] });
@@ -23004,6 +23015,13 @@ function specPlan(source, file) {
     }
     const node = n;
     let inner = current;
+    if (node.type === "CallExpression" || node.type === "OptionalCallExpression") {
+      const raw = memberName(node.callee);
+      if (raw && Object.hasOwn(RAW_INPUT, raw))
+        plan.problems.push(
+          `${file}:${node.loc?.start.line ?? "?"}: .${raw}() direkt \u2014 bitte ${RAW_INPUT[raw]} aus der Harness verwenden`
+        );
+    }
     if (node.type === "CallExpression") {
       const callee = node.callee;
       const args = node.arguments;

@@ -116,4 +116,12 @@ describe('settings file', () => {
     (bad.accounts[0] as { login: string }).login = 'password';
     expect(() => saveConfig(bad, env)).toThrow('login');
   });
+
+  test('consentButtons is optional and maps project labels to a button text', () => {
+    const env = { XDG_CONFIG_HOME: join(tempDir(), 'cfg') };
+    saveConfig(sample({ consentButtons: { 'acme-de': 'Nur notwendige' } }), env);
+    expect(loadConfig(env)?.consentButtons).toEqual({ 'acme-de': 'Nur notwendige' });
+    for (const consentButtons of [[], { 'acme-de': '' }, { 'acme-de': 3 }, null])
+      expect(() => saveConfig(sample({ consentButtons } as never), env)).toThrow('consentButtons');
+  });
 });

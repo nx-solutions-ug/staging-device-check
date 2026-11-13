@@ -38,6 +38,10 @@ Ask for each value; for a re-run, show the current value and change only what sh
 
 `login: quick` means the account is on the host's quick-login list; `code` means sign-in by mail code.
 
+Optional: `consentButtons`, host label → the exact text of the consent banner's most privacy-preserving button
+(`{ "example-shop": "Nur notwendige" }`). Only when she wants it fixed for a project; otherwise each device test takes
+the label from its local look. An entry here wins over that.
+
 Write the file as JSON to the path this prints, then make it private:
 
 ```bash

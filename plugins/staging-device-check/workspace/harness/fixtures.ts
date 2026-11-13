@@ -3,12 +3,16 @@
  * Run context comes from the runner (env): SDC_HOST (app host), SDC_RUN_DIR (run folder), SDC_TICKET, and
  * SDC_MAILBOX = shared (default) | demo — with a live demo the login code lands in the demo's own mailbox.
  * Options set by the spec with `test.use(...)`: `persona`, and for sign-in `loginPath`, `signInSelectors`,
- * `codePattern` (all found on the first local look). The device label is the project name.
+ * `codePattern` (all found on the first local look), and `consentButton`: the consent banner's most
+ * privacy-preserving button as the local look showed it (a per-project `consentButtons` entry in the settings wins).
+ * The device label is the project name.
  */
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { expect, test as base } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import {
+  consentButtonFor,
   gateLogin,
   latestLoginCode,
   loadConfig,
@@ -18,6 +22,17 @@ import {
 } from './lib.js';
 import { appCookieParam } from './app-cookie.js';
 import { beginCheck, noteLayout, unmeasured } from './check-state.js';
+import { consentBanner, consentShownInPage, type Consent } from './consent.js';
+import {
+  setNativeInPage,
+  tapSafely,
+  typeSafely,
+  valueInPage,
+  viewportInPage,
+  type TapOptions,
+  type TypeMethod,
+} from './input.js';
+import { probeInPage, settle, unsettled } from './settle.js';
 import { evaluateWith } from './evaluate.js';
 import { measure, type LayoutOpts } from './measure.js';
 import { shotName, stepNote } from './names.js';
@@ -55,6 +70,13 @@ type Options = {
   loginPath: string;
   signInSelectors: SignInSelectors;
   codePattern: RegExp | undefined;
+  consentButton: string | undefined;
+};
+
+export type TypeIntoOptions = {
+  /** the app noticed the value (e.g. its suggestions are visible); default: the field reads the value back */
+  until?: () => Promise<boolean>;
+  waitMs?: number;
 };
 
 type Fixtures = {
@@ -64,15 +86,51 @@ type Fixtures = {
   layout: (opts: LayoutOpts & { keyboard?: boolean }) => Promise<RuleResult[]>;
   /** sets a preference cookie the app reads (its language) on the confirmed host — before the first navigation */
   appCookie: (name: string, value: string) => Promise<void>;
+  /** taps after closing the keyboard and dismissing a late consent banner; the only way a spec taps */
+  tap: (target: Locator, opts?: TapOptions) => Promise<void>;
+  /** types into the field (CSS selector) with the iOS-safe order of methods; the only way a spec types */
+  typeInto: (selector: string, value: string, opts?: TypeIntoOptions) => Promise<TypeMethod>;
+  consent: Consent;
 };
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const clock = { sleep, now: () => Date.now() };
+
+async function atRest(page: Page, opts: LayoutOpts) {
+  const s = await settle(() => evaluateWith(page, probeInPage, opts), clock);
+  console.error(`layout(): Seite ${s.stable ? 'ruhig' : 'NICHT ruhig'} nach ${s.ms} ms`);
+  return s;
+}
 
 export const test = base.extend<Options & Fixtures>({
   persona: ['standard', { option: true }],
   loginPath: ['/login', { option: true }],
   signInSelectors: [{}, { option: true }],
   codePattern: [undefined, { option: true }],
+  consentButton: [undefined, { option: true }],
 
-  staging: async ({ page, context }, use, testInfo) => {
+  consent: async ({ page, consentButton }, use) => {
+    const label = consentButtonFor(loadConfig(), need('SDC_HOST'), consentButton);
+    const button = (l: string) => page.getByRole('button', { name: l, exact: true }).first();
+    await use(
+      consentBanner(label, {
+        shown: (l) => evaluateWith(page, consentShownInPage, l),
+        appears: (l, ms) =>
+          button(l)
+            .waitFor({ state: 'visible', timeout: ms })
+            .then(() => true)
+            .catch(() => false),
+        dismiss: async (l) => {
+          await button(l).tap();
+          await button(l)
+            .waitFor({ state: 'hidden', timeout: 10_000 })
+            .catch(() => undefined);
+        },
+      }),
+    );
+  },
+
+  staging: async ({ page, context, consent }, use, testInfo) => {
     const { config, password } = settings();
     let lastStatus: number | null = null;
     await withStaging(
@@ -106,7 +164,14 @@ export const test = base.extend<Options & Fixtures>({
           console.error(message);
         },
       },
-      use,
+      (s) =>
+        use({
+          host: s.host,
+          goto: async (path) => {
+            await s.goto(path);
+            await consent.afterGoto();
+          },
+        }),
     );
   },
 
@@ -143,7 +208,7 @@ export const test = base.extend<Options & Fixtures>({
     });
   },
 
-  shot: async ({ page, persona }, use, testInfo) => {
+  shot: async ({ page, persona, consent }, use, testInfo) => {
     const dir = join(need('SDC_RUN_DIR'), 'screenshots');
     mkdirSync(dir, { recursive: true });
     let n = 0;
@@ -152,6 +217,7 @@ export const test = base.extend<Options & Fixtures>({
         dir,
         shotName(need('SDC_TICKET'), testInfo.project.name, persona, ++n, step),
       );
+      await consent.look();
       await page.screenshot({ path });
       return path;
     });
@@ -163,20 +229,71 @@ export const test = base.extend<Options & Fixtures>({
     });
   },
 
-  layout: async ({ page }, use) => {
+  tap: async ({ consent }, use) => {
+    await use(async (target, opts) => {
+      const page = target.page();
+      await tapSafely(
+        {
+          ...clock,
+          viewport: () => page.evaluate(viewportInPage),
+          blur: () => page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur()),
+          ready: async () => {
+            await expect(target).toBeVisible();
+            await expect(target).toBeEnabled();
+          },
+          tap: () => target.tap(),
+          consent: () => consent.look(),
+        },
+        opts,
+      );
+    });
+  },
+
+  typeInto: async ({ page, tap }, use) => {
+    await use(async (selector, value, opts = {}) => {
+      const field = page.locator(selector).first();
+      const method = await typeSafely(
+        {
+          ...clock,
+          tapField: () => tap(field, { keepKeyboard: true }),
+          fill: (v) => field.fill(v),
+          setNative: (v) => evaluateWith(page, setNativeInPage, { selector, value: v }),
+          pressSequentially: (v) => field.pressSequentially(v),
+          arrived:
+            opts.until ?? (async () => (await evaluateWith(page, valueInPage, selector)) === value),
+        },
+        selector,
+        value,
+        { waitMs: opts.waitMs ?? (opts.until ? undefined : 1_500) },
+      );
+      console.error(`typeInto ${selector}: ${method}`);
+      return method;
+    });
+  },
+
+  layout: async ({ page, consent }, use) => {
     await use(async ({ keyboard, ...opts }) => {
-      const settled = await measure(page, opts);
+      await consent.look();
       const ua = await page.evaluate(() => navigator.userAgent);
       const platform = /iPhone|iPad|iPod/.test(ua) ? 'ios' : 'android';
-      if (keyboard) return noteLayout(evaluateRules(settled, 'keyboard', platform));
-      const results = evaluateRules(settled, 'settled', platform);
+      // the iOS keyboard phase is never measured (no keyboard through Playwright): nothing to wait for
+      if (keyboard && platform === 'ios')
+        return noteLayout(evaluateRules(await measure(page, opts), 'keyboard', platform));
+      const first = await atRest(page, opts);
+      const settled = await measure(page, opts);
+      if (keyboard)
+        return noteLayout(unsettled(evaluateRules(settled, 'keyboard', platform), first));
+      const results = unsettled(evaluateRules(settled, 'settled', platform), first);
       if (opts.actionBar) {
         const y = settled.scrollY;
         await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-        await page.waitForTimeout(300);
+        const end = await atRest(page, opts);
         results.push(
-          ...evaluateRules(await measure(page, opts), 'pageend', platform).filter(
-            (r) => r.rule === 'R3',
+          ...unsettled(
+            evaluateRules(await measure(page, opts), 'pageend', platform).filter(
+              (r) => r.rule === 'R3',
+            ),
+            end,
           ),
         );
         await evaluateWith(page, (top: number) => window.scrollTo(0, top), y);

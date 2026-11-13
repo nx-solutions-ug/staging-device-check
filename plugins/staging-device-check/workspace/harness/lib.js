@@ -48,6 +48,11 @@ function validate(c) {
   if (!c.projects || typeof c.projects !== "object" || Array.isArray(c.projects) || !Object.values(c.projects).every(isString)) {
     throw new Error("Einstellungen: projects muss Anzeigenamen auf Labels abbilden.");
   }
+  if (c.consentButtons !== void 0 && (!c.consentButtons || typeof c.consentButtons !== "object" || Array.isArray(c.consentButtons) || !Object.values(c.consentButtons).every((v) => isString(v) && v.trim() !== ""))) {
+    throw new Error(
+      "Einstellungen: consentButtons muss Projekt-Labels auf die Beschriftung eines Knopfs abbilden."
+    );
+  }
   if (!Array.isArray(c.accounts)) throw new Error("Einstellungen: accounts muss eine Liste sein.");
   for (const a of c.accounts) {
     for (const k of ["label", "email", "persona", "project"]) {
@@ -330,8 +335,27 @@ function redactor(secrets) {
   const ordered = [...forms].sort((a, b) => b.length - a.length);
   return (text) => ordered.reduce((t, f) => t.split(f).join(MASK), String(text));
 }
+
+// src/hosts.ts
+var escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function projectOfHost(c, host) {
+  const apexHost = new URL(c.apex).host.toLowerCase();
+  const labels = Object.values(c.projects).sort((a, b) => b.length - a.length);
+  for (const label of labels) {
+    const source = c.hostPattern.split(/(\{[^}]*\})/).map(
+      (part) => part === "{project}" ? escape(label.toLowerCase()) : part === "{branch}" ? "[a-z0-9-]+" : part === "{apexHost}" ? escape(apexHost) : escape(part)
+    ).join("");
+    if (new RegExp(`^${source}$`).test(host.toLowerCase())) return label;
+  }
+  return null;
+}
+function consentButtonFor(c, host, fromSpec) {
+  const label = c && projectOfHost(c, host);
+  return label && c.consentButtons && Object.hasOwn(c.consentButtons, label) ? c.consentButtons[label] : fromSpec || void 0;
+}
 export {
   GateError,
+  consentButtonFor,
   gateLogin,
   latestLoginCode,
   loadConfig,
