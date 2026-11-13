@@ -196,6 +196,7 @@ export const test = base.extend<Options & Fixtures>({
       try {
         await signIn(page, account, {
           goto: (path) => staging.goto(path),
+          currentUrl: () => page.url(),
           loginPath,
           selectors: signInSelectors,
           runDir: need('SDC_RUN_DIR'),

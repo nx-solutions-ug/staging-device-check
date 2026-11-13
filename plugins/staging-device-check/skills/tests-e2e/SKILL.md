@@ -81,7 +81,7 @@ test.describe('Konto A (frau)', () => {
   test.use({ persona: 'frau', consentButton: 'Nur notwendige' });
 
   test('Konto A (frau)', async ({ page, account, staging, shot, layout, tap, typeInto }) => {
-    await account('A'); // first: signs in (quick login or mail code)
+    await account('A'); // first: signs in (quick login or mail code), returns once the login page is left
     await staging.goto('/registrierung/wohnort'); // only paths on the confirmed host; dismisses the banner
 
     await check('Wohnort-Schritt zeigt die Auswahl', async () => {
@@ -139,8 +139,10 @@ test.describe('Konto A (frau)', () => {
 Rules for the spec:
 
 - **One `test` per persona**, titled with the account and persona as fixed text. `await account('<label>')` comes
-  first, with a label from the settings. Several personas → several tests; never one test per check (each test is a
-  new device session and a new sign-in, and mail codes are limited to one per minute and five per hour).
+  first, with a label from the settings; it returns once the app has left the login page (at most 20 s, else the
+  test fails with „Anmeldung nicht abgeschlossen …“), so the spec needs no wait of its own. Several personas →
+  several tests; never one test per check (each test is a new device session and a new sign-in, and mail codes are
+  limited to one per minute and five per hour).
 - **Each check is `check('<Prüfung>', body, opts?)`**, its title fixed text in the ticket's wording. No raw
   `test.step`: `run` refuses it, and it reads the planned check titles from the spec before the run, so a check that
   never ran (after a hard failure) still gets its row ("nicht bestanden — nicht gelaufen").

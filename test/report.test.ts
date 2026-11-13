@@ -209,6 +209,43 @@ describe('parseResult with test.step checks (one test per persona)', () => {
       ['Konto A (frau): Ablauf', 'nicht bestanden'],
     ]);
   });
+
+  test('a sign-in that never left the login page: its German sentence is the note', () => {
+    const report = {
+      suites: [
+        {
+          specs: [
+            {
+              title: 'Konto A (frau)',
+              tests: [
+                {
+                  projectName: 'safari-iPhone 16:18',
+                  results: [
+                    {
+                      status: 'failed',
+                      errors: [
+                        {
+                          message:
+                            'Error: Anmeldung nicht abgeschlossen: Die Seite steht nach 20 s noch auf /login.\n    at signIn (harness/signin.ts:1:1)',
+                        },
+                      ],
+                      steps: [],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(parseResult(report as never, []).checks.map((c) => [c.outcome, c.note])).toEqual([
+      [
+        'nicht bestanden',
+        'Anmeldung nicht abgeschlossen: Die Seite steht nach 20 s noch auf /login.',
+      ],
+    ]);
+  });
 });
 
 describe('renderStand', () => {

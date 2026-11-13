@@ -7,6 +7,8 @@
  * per-address ledger in the run folder under an exclusive lock file, so parallel workers with the same address
  * never request inside each other's 60 s window. With a demo mailbox (SDC_MAILBOX=demo) the code never reaches the
  * shared Mailpit: a code login is skipped as „nicht prüfbar hier“ before anything is requested.
+ * After the entry is tapped or the code typed, `signIn` returns only once the app has left the login page (bounded,
+ * 20 s), so a spec that navigates next is signed in; a login that never finishes is a German error.
  */
 import { createHash } from 'node:crypto';
 import {
@@ -47,6 +49,8 @@ export type Mailbox = 'shared' | 'demo';
 
 export type SignInDeps = {
   goto(path: string): Promise<void>;
+  /** the page's address now; a read that fails (mid-navigation) is tried again */
+  currentUrl(): string | Promise<string>;
   loginPath: string;
   selectors: SignInSelectors;
   runDir: string;
@@ -74,6 +78,8 @@ const MARGIN_MS = 1_000;
 const HOUR_MS = 3_600_000;
 const PER_HOUR = 5;
 const LOCK_STALE_MS = 15_000;
+const LOGIN_DONE_MS = 20_000;
+const LOGIN_POLL_MS = 250;
 
 const need = (sel: string | undefined, name: string): string => {
   if (!sel) throw new Error(`Anmeldung: Selektor „${name}“ fehlt im Test.`);
@@ -142,6 +148,37 @@ async function reserveSlot(
   }
 }
 
+/** The login page itself, with a query or a trailing slash, or one of its sub-steps (`/login/code`). */
+function onLoginPage(url: string, loginPath: string): boolean {
+  const path = new URL(url).pathname;
+  const login = loginPath.replace(/\/+$/, '') || '/';
+  return path === login || path.startsWith(`${login}/`);
+}
+
+/** Waits until the page has left the login page, at most 20 s. The address never goes into the message. */
+async function loginFinished(
+  d: SignInDeps,
+  now: () => number,
+  sleep: (ms: number) => Promise<void>,
+) {
+  const start = now();
+  for (;;) {
+    let left = false;
+    try {
+      left = !onLoginPage(await d.currentUrl(), d.loginPath);
+    } catch {
+      // the page is navigating; read again
+    }
+    if (left) return;
+    if (now() - start >= LOGIN_DONE_MS) {
+      throw new Error(
+        `Anmeldung nicht abgeschlossen: Die Seite steht nach ${LOGIN_DONE_MS / 1000} s noch auf ${d.loginPath}.`,
+      );
+    }
+    await sleep(LOGIN_POLL_MS);
+  }
+}
+
 export async function signIn(page: SignInPage, account: Account, d: SignInDeps): Promise<void> {
   const now = d.now ?? Date.now;
   const sleep = d.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -162,6 +199,7 @@ export async function signIn(page: SignInPage, account: Account, d: SignInDeps):
       .filter({ hasText: account.email })
       .first()
       .tap();
+    await loginFinished(d, now, sleep);
     return;
   }
 
@@ -172,4 +210,5 @@ export async function signIn(page: SignInPage, account: Account, d: SignInDeps):
   await page.locator(need(s.send, 'send')).tap();
   const code = await d.codes.read(account.email, known);
   await page.locator(need(s.code, 'code')).pressSequentially(code);
+  await loginFinished(d, now, sleep);
 }
