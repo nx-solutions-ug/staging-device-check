@@ -180,7 +180,8 @@ Rules for the spec:
   - `typeInto` tries `fill`, then the native value setter, then typing character by character, and stops at the
     first one the app noticed. Give it `until`: what the app does when it got the value (suggestions visible,
     "Weiter" enabled). Without it, only the field's own value is read back.
-  - A check that needs the keyboard open measures first; the next `tap()` closes it.
+  - A check that needs the keyboard open measures first; the next `tap()` closes it, or `closeKeyboard()` when
+    nothing is tapped next.
 - **No fixed waits** (`waitForTimeout`): wait for what tells the next state apart — a heading, a field, a button
   (`await expect(…).toBeVisible()`, `expect.poll`). `layout()` waits by itself until the page is at rest (entry
   animations done), at most about 3 s; a page that does not come to rest is "nicht bestanden", never a pass.

@@ -24,6 +24,7 @@ import { appCookieParam } from './app-cookie.js';
 import { beginCheck, noteLayout, unmeasured } from './check-state.js';
 import { consentBanner, consentShownInPage, type Consent } from './consent.js';
 import {
+  closeKeyboard,
   setNativeInPage,
   tapSafely,
   typeSafely,
@@ -90,11 +91,18 @@ type Fixtures = {
   tap: (target: Locator, opts?: TapOptions) => Promise<void>;
   /** types into the field (CSS selector) with the iOS-safe order of methods; the only way a spec types */
   typeInto: (selector: string, value: string, opts?: TypeIntoOptions) => Promise<TypeMethod>;
+  /** closes the on-screen keyboard without tapping anything (after a check that measured it open) */
+  closeKeyboard: () => Promise<boolean>;
   consent: Consent;
 };
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const clock = { sleep, now: () => Date.now() };
+
+const keyboardOf = (page: Page) => ({
+  viewport: () => page.evaluate(viewportInPage),
+  blur: () => page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur()),
+});
 
 async function atRest(page: Page, opts: LayoutOpts) {
   const s = await settle(() => evaluateWith(page, probeInPage, opts), clock);
@@ -229,14 +237,17 @@ export const test = base.extend<Options & Fixtures>({
     });
   },
 
+  closeKeyboard: async ({ page }, use) => {
+    await use(() => closeKeyboard({ ...clock, ...keyboardOf(page) }));
+  },
+
   tap: async ({ consent }, use) => {
     await use(async (target, opts) => {
       const page = target.page();
       await tapSafely(
         {
           ...clock,
-          viewport: () => page.evaluate(viewportInPage),
-          blur: () => page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur()),
+          ...keyboardOf(page),
           ready: async () => {
             await expect(target).toBeVisible();
             await expect(target).toBeEnabled();
