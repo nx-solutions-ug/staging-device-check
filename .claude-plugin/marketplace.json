@@ -12,7 +12,7 @@
       "displayName": "Staging Device Check",
       "source": "./plugins/staging-device-check",
       "description": "Lässt Claude ein Jira-Ticket auf echten Handys über BrowserStack gegen Staging testen.",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "category": "testing",
       "keywords": ["browserstack", "playwright", "staging", "e2e", "mobile", "jira"],
       "homepage": "https://github.com/nx-solutions-ug/staging-device-check"

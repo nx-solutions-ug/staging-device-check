@@ -1,3 +1,10 @@
+## [1.2.2](https://github.com/nx-solutions-ug/staging-device-check/compare/v1.2.1...v1.2.2) (2026-11-13)
+
+
+### Bug Fixes
+
+* read the page address in the page, not from page.url() ([#6](https://github.com/nx-solutions-ug/staging-device-check/issues/6)) ([0378701](https://github.com/nx-solutions-ug/staging-device-check/commit/03787013a30465625758138cc25e05f2f3887bf9))
+
 ## [1.2.1](https://github.com/nx-solutions-ug/staging-device-check/compare/v1.2.0...v1.2.1) (2026-11-13)
 
 
