@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/nx-solutions-ug/staging-device-check/compare/v1.1.1...v1.2.0) (2026-11-13)
+
+
+### Features
+
+* device-robust harness helpers and a cleaner result section ([#4](https://github.com/nx-solutions-ug/staging-device-check/issues/4)) ([ee373b6](https://github.com/nx-solutions-ug/staging-device-check/commit/ee373b678b6dc7aa7427d62ca0cc2025dd9f3160))
+
 ## [1.1.1](https://github.com/nx-solutions-ug/staging-device-check/compare/v1.1.0...v1.1.1) (2026-11-12)
 
 
