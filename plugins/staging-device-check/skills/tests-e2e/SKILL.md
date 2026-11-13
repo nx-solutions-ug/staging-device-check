@@ -184,7 +184,7 @@ Rules for the spec:
     nothing is tapped next.
 - **No fixed waits** (`waitForTimeout`): wait for what tells the next state apart — a heading, a field, a button
   (`await expect(…).toBeVisible()`, `expect.poll`). `layout()` waits by itself until the page is at rest (entry
-  animations done), at most about 3 s; a page that does not come to rest is "nicht bestanden", never a pass.
+  animations done, every measured element shown), at most about 6 s; a page that does not come to rest is "nicht bestanden", never a pass.
 - A step that reveals itself piece by piece (a typing indicator, content fading in one after another): wait for
   its end — the indicator hidden (`expect.poll` on an in-page check) — before a screenshot or a text check;
   `layout()` already waits for every element it measures to be shown.

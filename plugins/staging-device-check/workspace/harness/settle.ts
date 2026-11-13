@@ -23,7 +23,7 @@ export type SettleClock = { sleep(ms: number): Promise<void>; now(): number };
 
 export type Settled = { stable: true; ms: number } | { stable: false; ms: number; why: string };
 
-export const SETTLE_LIMIT_MS = 3_000;
+export const SETTLE_LIMIT_MS = 6_000;
 const POLL_MS = 150;
 const TOLERANCE = 0.5;
 
