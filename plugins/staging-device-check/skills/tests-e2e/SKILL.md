@@ -174,6 +174,12 @@ Rules for the spec:
 - **Never** `page.evaluate(fn, arg)`, `$eval(sel, fn, arg)`, `evaluateAll(fn, arg)` or `waitForFunction(fn, arg)`
   with an argument: BrowserStack's iPhone driver drops it. Use `evaluateWith(page, fn, arg)` from the harness;
   calls without an argument are fine. `run` refuses a spec that breaks this.
+- **Check the address in the page, never with Playwright's own address.** No `expect(page).toHaveURL(…)`,
+  `page.waitForURL(…)` or `page.url()`: on a real iPhone (iOS 27, Safari) that address did not follow the app's
+  in-app navigation (`history.pushState`) and stayed on the last full load. Poll `pathInPage(page)` from the harness,
+  which reads `location.pathname` in the page: `await expect.poll(() => pathInPage(page)).toBe('/dashboard')`. It
+  answers `null` while the page is swapping documents, so the poll goes on; a raw `page.evaluate` inside
+  `expect.poll` would stop it at the first failed read. `account()` already waits this way.
 - **Tap only with `tap(locator)`, type only with `typeInto('<CSS selector>', value, { until })`** — the fixtures
   from the harness. `run` refuses a spec with a raw `.tap()`, `.fill()` or `.pressSequentially()`.
   - `tap` dismisses a late consent banner, closes the on-screen keyboard (on Android it covers the bottom button and

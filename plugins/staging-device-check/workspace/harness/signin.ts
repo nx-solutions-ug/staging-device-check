@@ -49,7 +49,7 @@ export type Mailbox = 'shared' | 'demo';
 
 export type SignInDeps = {
   goto(path: string): Promise<void>;
-  /** the page's address now; a read that fails (mid-navigation) is tried again */
+  /** the page's address now, read in the page (`location.href`, not `page.url()`); a failed read is tried again */
   currentUrl(): string | Promise<string>;
   loginPath: string;
   selectors: SignInSelectors;
