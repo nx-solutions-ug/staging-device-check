@@ -7805,10 +7805,35 @@ var ZU_PRUEFEN = "zu pr\xFCfen";
 var INTERNAL = /\b14 UNAVAILABLE\b|\bgrpc\b|sdk-platform|\.sock\b/;
 var NOT_STARTED = /UmgebungNichtGestartet|Umgebung nicht gestartet/;
 var INTERNAL_NOTE = "interner Fehler des Ger\xE4tedienstes (Details im Log)";
+var ERROR_NAME = /^(?:(?:[A-Z][A-Za-z]*)?(?:Error|Fehler)|UmgebungNichtGestartet|NichtPruefbarHier): /;
+var JS_ERROR = /^(?:TypeError|ReferenceError|SyntaxError|RangeError|EvalError|URIError): /;
+var API_CALL = /^(?:page|locator|frame|browserContext|browser|elementHandle|keyboard|mouse|touchscreen|context|request)\.\w+: /;
+function playwrightSentence(line) {
+  if (/^Test timeout of \d+ms exceeded/.test(line))
+    return "Zeit\xFCberschreitung: der Test lief zu lange";
+  if (/strict mode violation/.test(line)) return "Element nicht eindeutig gefunden";
+  if (line.startsWith("expect(")) {
+    if (/\.toBe(?:Visible|InViewport)\(/.test(line)) return "Element nicht sichtbar";
+    if (/\.toBe(?:Hidden)\(/.test(line)) return "Element blieb sichtbar";
+    if (/\.toBe(?:Enabled|Editable)\(/.test(line)) return "Element nicht bedienbar";
+    if (/\.to(?:HaveText|ContainText|HaveValue)\(/.test(line)) return "Text nicht wie erwartet";
+    return "Messung nicht wie erwartet";
+  }
+  if (API_CALL.test(line)) {
+    if (/^page\.(?:goto|reload|goBack|goForward)/.test(line))
+      return "Seite konnte nicht ge\xF6ffnet werden";
+    if (/Timeout \d+ms exceeded/.test(line))
+      return "Zeit\xFCberschreitung bei einer Aktion auf der Seite";
+    return "Aktion auf der Seite fehlgeschlagen";
+  }
+  if (/^Timeout \d+ms exceeded/.test(line)) return "Zeit\xFCberschreitung beim Warten";
+  return null;
+}
+var DETAILS = " (Details im Log)";
 var deviceOf = (project) => /iphone|ipad|ios/i.test(project) ? "iPhone" : "Android";
 var ANSI = /\u001b\[[0-9;]*m/g;
 var firstLine = (s) => s.replace(ANSI, "").split("\n").find((l) => l.trim())?.trim().slice(0, 160) ?? "";
-function outcomeOf(t, clean) {
+function outcomeOf(t, clean, where) {
   const last = t.results?.at(-1) ?? {};
   const annotations = [...t.annotations ?? [], ...last.annotations ?? []];
   const find = (type) => annotations.find((a) => a.type === type);
@@ -7821,7 +7846,7 @@ function outcomeOf(t, clean) {
     const a = find(ZU_PRUEFEN);
     return a ? { outcome: "zu pr\xFCfen (Bild)", note: a.description ?? "" } : { outcome: "bestanden", note: "" };
   }
-  return { outcome: "nicht bestanden", note: clean(last.errors?.[0]?.message ?? status) };
+  return { outcome: "nicht bestanden", note: clean(last.errors?.[0]?.message ?? status, where) };
 }
 var annotationsOf = (t) => {
   const seen = /* @__PURE__ */ new Set();
@@ -7841,11 +7866,15 @@ function stepMark(annotations, type, step) {
   }
   return null;
 }
-function stepOutcome(step, annotations, clean) {
+function stepOutcome(step, annotations, clean, where) {
   const title = step.title ?? "";
   const notHere = stepMark(annotations, NICHT_PRUEFBAR, title);
   if (notHere !== null) return { outcome: "nicht pr\xFCfbar hier", note: notHere };
-  if (step.error) return { outcome: "nicht bestanden", note: clean(step.error.message ?? "") };
+  if (step.error)
+    return {
+      outcome: "nicht bestanden",
+      note: clean(step.error.message ?? "", `${where} \u2013 ${title}`)
+    };
   const look = stepMark(annotations, ZU_PRUEFEN, title);
   if (look !== null) return { outcome: "zu pr\xFCfen (Bild)", note: look };
   return { outcome: "bestanden", note: "" };
@@ -7855,10 +7884,21 @@ var INTERRUPTED = "Test unterbrochen";
 var namesStep = (a, titles) => titles.some((t) => a.description === t || (a.description ?? "").startsWith(`${t}: `));
 function parseResult(report2, screenshots, plan) {
   const log = [];
-  const clean = (message) => {
-    if (!INTERNAL.test(message)) return firstLine(message);
-    log.push(message.replace(ANSI, "").trim());
-    return INTERNAL_NOTE;
+  const clean = (message, where) => {
+    const raw = message.replace(ANSI, "").trim();
+    if (INTERNAL.test(message)) {
+      log.push(`${where}: interner Fehler des Ger\xE4tedienstes: ${raw}`);
+      return INTERNAL_NOTE;
+    }
+    const first = firstLine(message);
+    const line = first.replace(ERROR_NAME, "");
+    const sentence = JS_ERROR.test(first) ? "Technischer Fehler im Test" : playwrightSentence(line);
+    if (sentence) {
+      log.push(`${where}: ${raw}`);
+      return `${sentence}${DETAILS}`;
+    }
+    const parts = line.split("; ").filter((p) => p.trim() !== "ok");
+    return parts.length ? parts.join("; ") : line;
   };
   const abortedRow = (title, device, project) => ({
     title,
@@ -7899,7 +7939,7 @@ function parseResult(report2, screenshots, plan) {
       const last = t.results?.at(-1) ?? {};
       const steps = last.steps ?? [];
       if (!steps.length || last.status === "skipped") {
-        const whole = outcomeOf(t, clean);
+        const whole = outcomeOf(t, clean, `${device} \u2013 ${specTitle}`);
         const own = planned(specTitle);
         const cutTest2 = cutByAbort(last, steps);
         if (!cutTest2) finished.add(key(specTitle, device));
@@ -7924,9 +7964,10 @@ function parseResult(report2, screenshots, plan) {
         if (step === cut) {
           const message = step.error?.message;
           if (message && !INTERNAL.test(message)) log.push(message.replace(ANSI, "").trim());
-          else if (message) clean(message);
+          else if (message) clean(message, `${device} \u2013 ${title}`);
           checks.push(abortedRow(title, device, project));
-        } else checks.push({ title, device, project, ...stepOutcome(step, annotations, clean) });
+        } else
+          checks.push({ title, device, project, ...stepOutcome(step, annotations, clean, device) });
       }
       const problems = [];
       const titles = steps.map((s) => s.title ?? "");
@@ -7936,7 +7977,7 @@ function parseResult(report2, screenshots, plan) {
       if (last.status !== "passed" && !steps.some((s) => s.error)) {
         const message = last.errors?.[0]?.message ?? last.status ?? "";
         if (cutTest) log.push(firstLine(message));
-        else problems.push(clean(message));
+        else problems.push(clean(message, `${device} \u2013 ${specTitle}`));
       }
       if (problems.length)
         checks.push({
@@ -7971,6 +8012,19 @@ function parseResult(report2, screenshots, plan) {
 }
 var cell = (s) => s.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 var pad = (n) => String(n).padStart(2, "0");
+function shotOf(file, ticket) {
+  const [device = "", , last = ""] = file.slice(ticket.length + 1).split("_");
+  const words = last.replace(/\.png$/, "").replace(/^\d+-/, "").replaceAll("-", " ");
+  return { file, device: deviceOf(device), step: words.charAt(0).toUpperCase() + words.slice(1) };
+}
+function splitNote(note, number) {
+  const refs = [];
+  const text = note.replace(/\S+\.png\b/g, (file) => {
+    refs.push(number(file));
+    return "";
+  }).replace(/\s*—\s*$/, "").trim();
+  return { text, refs };
+}
 function renderStand(r, ticket, host, devices, date) {
   const label = host.split(".")[0];
   const day = `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}`;
@@ -7981,22 +8035,40 @@ function renderStand(r, ticket, host, devices, date) {
     "| Pr\xFCfung | iPhone | Android | Hinweis |",
     "|---|---|---|---|"
   ];
+  const shots = r.screenshots.filter((f) => f.startsWith(`${ticket}_`)).map((f) => shotOf(f, ticket)).sort(
+    (a, b) => a.device === b.device ? a.file.localeCompare(b.file) : a.device === "iPhone" ? -1 : 1
+  );
+  const numbers = new Map(shots.map((s, i) => [s.file, i + 1]));
+  const number = (file) => {
+    const n = numbers.get(file);
+    return n ? `Bild ${n}` : "Bild fehlt";
+  };
   const titles = [...new Set(r.checks.map((c) => c.title))];
   for (const title of titles) {
     const rows = r.checks.filter((c) => c.title === title);
     const of = (d) => rows.find((c) => c.device === d);
     const ios = of("iPhone");
     const android = of("Android");
-    const notes = [ios, android].map((c) => c?.note ?? "");
     const present = [ios, android].filter((c) => !!c);
-    const note = present.length > 1 && notes[0] === notes[1] ? notes[0] : present.filter((c) => c.note).map((c) => `${c.device}: ${c.note}`).join("; ");
+    const parts = present.map((c) => ({ device: c.device, ...splitNote(c.note, number) }));
+    const own = (p) => [p.text, p.refs.join(", ")].filter(Boolean).join(p.text && p.refs.length ? " \u2014 " : "");
+    let note;
+    if (parts.length > 1 && parts[0].text === parts[1].text && parts.some((p) => p.refs.length)) {
+      const refs = parts.flatMap((p) => p.refs.map((ref) => `${ref} (${p.device})`));
+      note = [parts[0].text, refs.join(", ")].filter(Boolean).join(" \u2014 ");
+    } else if (parts.length > 1 && own(parts[0]) === own(parts[1])) note = own(parts[0]);
+    else
+      note = parts.filter((p) => own(p)).map((p) => `${p.device}: ${own(p)}`).join("; ");
     lines.push(
       `| ${cell(title)} | ${ios?.outcome ?? "\u2014"} | ${android?.outcome ?? "\u2014"} | ${cell(note) || "\u2014"} |`
     );
   }
-  const shots = r.screenshots.filter((f) => f.startsWith(`${ticket}_`)).sort();
   lines.push("");
-  if (shots.length) lines.push("Bilder zum Anh\xE4ngen:", ...shots.map((f) => `- ${f}`));
+  if (shots.length)
+    lines.push(
+      "Bilder zum Anh\xE4ngen:",
+      ...shots.map((s, i) => `${i + 1}. ${s.device} \u2013 ${s.step} (${s.file})`)
+    );
   else lines.push("Bilder zum Anh\xE4ngen: keine");
   const ownPhone = titles.filter(
     (t) => r.checks.some((c) => c.title === t && c.outcome === "nicht pr\xFCfbar hier")
@@ -23728,8 +23800,7 @@ function report(dir, ticket, d) {
       ...meta.aborted ? { aborted: meta.aborted } : {}
     } : void 0
   );
-  for (const line of parsed.log)
-    d.err(`Interner Fehler des Ger\xE4tedienstes (nicht im Abschnitt): ${line}`);
+  for (const line of parsed.log) d.err(`Details (nicht im Abschnitt): ${line}`);
   const md = renderStand(parsed, ticket, meta.host, meta.devices ?? [], new Date(meta.createdAt));
   writeFileSync4(join6(dir, "stand-abschnitt.md"), md);
   d.out(md.trimEnd());

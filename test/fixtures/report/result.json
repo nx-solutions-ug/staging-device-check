@@ -41,14 +41,14 @@
                     {
                       "status": "passed",
                       "errors": [],
-                      "annotations": [{ "type": "zu prüfen", "description": "Rahmenfarbe" }]
+                      "annotations": [{ "type": "zu prüfen", "description": "Rahmenfarbe — ACME-1_iphone-16_tester-a_01-start.png" }]
                     }
                   ],
                   "status": "expected"
                 },
                 {
                   "projectName": "Samsung Galaxy S23",
-                  "annotations": [{ "type": "zu prüfen", "description": "Rahmenfarbe" }],
+                  "annotations": [{ "type": "zu prüfen", "description": "Rahmenfarbe — ACME-1_samsung-galaxy-s23_tester-a_01-start.png" }],
                   "results": [{ "status": "passed", "errors": [] }],
                   "status": "expected"
                 }

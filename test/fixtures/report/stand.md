@@ -3,11 +3,11 @@
 | Prüfung | iPhone | Android | Hinweis |
 |---|---|---|---|
 | Weiter-Knopf bleibt über der Tastatur sichtbar | nicht prüfbar hier | bestanden | iPhone: Auf iOS öffnet Playwright keine Bildschirmtastatur. |
-| Profilbild \| Rahmen sieht wie im Entwurf aus | zu prüfen (Bild) | zu prüfen (Bild) | Rahmenfarbe |
-| Seite startet oben | nicht bestanden | nicht bestanden | iPhone: Error: expect(received).toBe(expected); Android: Test timeout of 30000ms exceeded. |
+| Profilbild \| Rahmen sieht wie im Entwurf aus | zu prüfen (Bild) | zu prüfen (Bild) | Rahmenfarbe — Bild 1 (iPhone), Bild 2 (Android) |
+| Seite startet oben | nicht bestanden | nicht bestanden | iPhone: Messung nicht wie erwartet (Details im Log); Android: Zeitüberschreitung: der Test lief zu lange (Details im Log) |
 
 Bilder zum Anhängen:
-- ACME-1_iphone-16_tester-a_01-start.png
-- ACME-1_samsung-galaxy-s23_tester-a_01-start.png
+1. iPhone – Start (ACME-1_iphone-16_tester-a_01-start.png)
+2. Android – Start (ACME-1_samsung-galaxy-s23_tester-a_01-start.png)
 
 Auf dem eigenen iPhone prüfen: Weiter-Knopf bleibt über der Tastatur sichtbar

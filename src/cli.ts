@@ -383,9 +383,8 @@ function report(dir: string, ticket: string, d: CliDeps): number {
         }
       : undefined,
   );
-  // the device service's own errors stay out of the section: here, for whoever reads the log
-  for (const line of parsed.log)
-    d.err(`Interner Fehler des Gerätedienstes (nicht im Abschnitt): ${line}`);
+  // raw error texts stay out of the section: here, for whoever reads the log
+  for (const line of parsed.log) d.err(`Details (nicht im Abschnitt): ${line}`);
   const md = renderStand(parsed, ticket, meta.host, meta.devices ?? [], new Date(meta.createdAt));
   writeFileSync(join(dir, 'stand-abschnitt.md'), md);
   d.out(md.trimEnd());

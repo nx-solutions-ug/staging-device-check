@@ -65,6 +65,41 @@ const INTERNAL = /\b14 UNAVAILABLE\b|\bgrpc\b|sdk-platform|\.sock\b/;
 const NOT_STARTED = /UmgebungNichtGestartet|Umgebung nicht gestartet/;
 const INTERNAL_NOTE = 'interner Fehler des Gerätedienstes (Details im Log)';
 
+/** The class name in front of a message: `Error: `, `TimeoutError: `, the harness's own `…Fehler: `. */
+const ERROR_NAME =
+  /^(?:(?:[A-Z][A-Za-z]*)?(?:Error|Fehler)|UmgebungNichtGestartet|NichtPruefbarHier): /;
+const JS_ERROR = /^(?:TypeError|ReferenceError|SyntaxError|RangeError|EvalError|URIError): /;
+const API_CALL =
+  /^(?:page|locator|frame|browserContext|browser|elementHandle|keyboard|mouse|touchscreen|context|request)\.\w+: /;
+
+/**
+ * Playwright's own words in a tester's sentence (first line, error name removed), or null when the line is the
+ * spec's or the harness's own German sentence. Checked in this order.
+ */
+function playwrightSentence(line: string): string | null {
+  if (/^Test timeout of \d+ms exceeded/.test(line))
+    return 'Zeitüberschreitung: der Test lief zu lange';
+  if (/strict mode violation/.test(line)) return 'Element nicht eindeutig gefunden';
+  if (line.startsWith('expect(')) {
+    if (/\.toBe(?:Visible|InViewport)\(/.test(line)) return 'Element nicht sichtbar';
+    if (/\.toBe(?:Hidden)\(/.test(line)) return 'Element blieb sichtbar';
+    if (/\.toBe(?:Enabled|Editable)\(/.test(line)) return 'Element nicht bedienbar';
+    if (/\.to(?:HaveText|ContainText|HaveValue)\(/.test(line)) return 'Text nicht wie erwartet';
+    return 'Messung nicht wie erwartet';
+  }
+  if (API_CALL.test(line)) {
+    if (/^page\.(?:goto|reload|goBack|goForward)/.test(line))
+      return 'Seite konnte nicht geöffnet werden';
+    if (/Timeout \d+ms exceeded/.test(line))
+      return 'Zeitüberschreitung bei einer Aktion auf der Seite';
+    return 'Aktion auf der Seite fehlgeschlagen';
+  }
+  if (/^Timeout \d+ms exceeded/.test(line)) return 'Zeitüberschreitung beim Warten';
+  return null;
+}
+
+const DETAILS = ' (Details im Log)';
+
 const deviceOf = (project: string): DeviceColumn =>
   /iphone|ipad|ios/i.test(project) ? 'iPhone' : 'Android';
 // oxlint-disable-next-line no-control-regex
@@ -77,7 +112,9 @@ const firstLine = (s: string) =>
     ?.trim()
     .slice(0, 160) ?? '';
 
-function outcomeOf(t: PwTest, clean: (m: string) => string): { outcome: Outcome; note: string } {
+type Clean = (message: string, where: string) => string;
+
+function outcomeOf(t: PwTest, clean: Clean, where: string): { outcome: Outcome; note: string } {
   const last = t.results?.at(-1) ?? {};
   const annotations = [...(t.annotations ?? []), ...(last.annotations ?? [])];
   const find = (type: string) => annotations.find((a) => a.type === type);
@@ -95,7 +132,7 @@ function outcomeOf(t: PwTest, clean: (m: string) => string): { outcome: Outcome;
       ? { outcome: 'zu prüfen (Bild)', note: a.description ?? '' }
       : { outcome: 'bestanden', note: '' };
   }
-  return { outcome: 'nicht bestanden', note: clean(last.errors?.[0]?.message ?? status) };
+  return { outcome: 'nicht bestanden', note: clean(last.errors?.[0]?.message ?? status, where) };
 }
 
 const annotationsOf = (t: PwTest) => {
@@ -122,12 +159,17 @@ function stepMark(annotations: Annotation[], type: string, step: string): string
 function stepOutcome(
   step: PwStep,
   annotations: Annotation[],
-  clean: (m: string) => string,
+  clean: Clean,
+  where: string,
 ): { outcome: Outcome; note: string } {
   const title = step.title ?? '';
   const notHere = stepMark(annotations, NICHT_PRUEFBAR, title);
   if (notHere !== null) return { outcome: 'nicht prüfbar hier', note: notHere };
-  if (step.error) return { outcome: 'nicht bestanden', note: clean(step.error.message ?? '') };
+  if (step.error)
+    return {
+      outcome: 'nicht bestanden',
+      note: clean(step.error.message ?? '', `${where} – ${title}`),
+    };
   const look = stepMark(annotations, ZU_PRUEFEN, title);
   if (look !== null) return { outcome: 'zu prüfen (Bild)', note: look };
   return { outcome: 'bestanden', note: '' };
@@ -156,10 +198,22 @@ export function parseResult(
 ): RunResult {
   const log: string[] = [];
   // a row's note: the first line, or a neutral text when the device service's plumbing failed (raw text to the log)
-  const clean = (message: string) => {
-    if (!INTERNAL.test(message)) return firstLine(message);
-    log.push(message.replace(ANSI, '').trim());
-    return INTERNAL_NOTE;
+  const clean = (message: string, where: string) => {
+    const raw = message.replace(ANSI, '').trim();
+    if (INTERNAL.test(message)) {
+      log.push(`${where}: interner Fehler des Gerätedienstes: ${raw}`);
+      return INTERNAL_NOTE;
+    }
+    const first = firstLine(message);
+    const line = first.replace(ERROR_NAME, '');
+    const sentence = JS_ERROR.test(first) ? 'Technischer Fehler im Test' : playwrightSentence(line);
+    if (sentence) {
+      log.push(`${where}: ${raw}`);
+      return `${sentence}${DETAILS}`;
+    }
+    // a spec's joined list (`expect.soft(items, items.join('; '))`): the passing parts say nothing
+    const parts = line.split('; ').filter((p) => p.trim() !== 'ok');
+    return parts.length ? parts.join('; ') : line;
   };
   const abortedRow = (title: string, device: DeviceColumn, project: string): RunCheck => ({
     title,
@@ -212,7 +266,7 @@ export function parseResult(
       const last = t.results?.at(-1) ?? {};
       const steps = last.steps ?? [];
       if (!steps.length || last.status === 'skipped') {
-        const whole = outcomeOf(t, clean);
+        const whole = outcomeOf(t, clean, `${device} – ${specTitle}`);
         const own = planned(specTitle);
         const cutTest = cutByAbort(last, steps);
         if (!cutTest) finished.add(key(specTitle, device));
@@ -246,9 +300,10 @@ export function parseResult(
         if (step === cut) {
           const message = step.error?.message;
           if (message && !INTERNAL.test(message)) log.push(message.replace(ANSI, '').trim());
-          else if (message) clean(message);
+          else if (message) clean(message, `${device} – ${title}`);
           checks.push(abortedRow(title, device, project));
-        } else checks.push({ title, device, project, ...stepOutcome(step, annotations, clean) });
+        } else
+          checks.push({ title, device, project, ...stepOutcome(step, annotations, clean, device) });
       }
       const problems: string[] = [];
       // a note for a check that has no step: its check never got its row, so the run is not trustworthy
@@ -261,7 +316,7 @@ export function parseResult(
       if (last.status !== 'passed' && !steps.some((s) => s.error)) {
         const message = last.errors?.[0]?.message ?? last.status ?? '';
         if (cutTest) log.push(firstLine(message));
-        else problems.push(clean(message));
+        else problems.push(clean(message, `${device} – ${specTitle}`));
       }
       if (problems.length)
         checks.push({
@@ -302,6 +357,34 @@ export function parseResult(
 const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 const pad = (n: number) => String(n).padStart(2, '0');
 
+type Shot = { file: string; device: DeviceColumn; step: string };
+
+/** `<TICKET>_<device>_<persona>_<NN>-<step>.png` (harness names.ts) → its device column and a readable step. */
+function shotOf(file: string, ticket: string): Shot {
+  const [device = '', , last = ''] = file.slice(ticket.length + 1).split('_');
+  const words = last
+    .replace(/\.png$/, '')
+    .replace(/^\d+-/, '')
+    .replaceAll('-', ' ');
+  return { file, device: deviceOf(device), step: words.charAt(0).toUpperCase() + words.slice(1) };
+}
+
+/** A note with its screenshot file names replaced by their number: the text, and "Bild N" per image. */
+function splitNote(
+  note: string,
+  number: (file: string) => string,
+): { text: string; refs: string[] } {
+  const refs: string[] = [];
+  const text = note
+    .replace(/\S+\.png\b/g, (file) => {
+      refs.push(number(file));
+      return '';
+    })
+    .replace(/\s*—\s*$/, '')
+    .trim();
+  return { text, refs };
+}
+
 export function renderStand(
   r: RunResult,
   ticket: string,
@@ -319,29 +402,51 @@ export function renderStand(
     '|---|---|---|---|',
   ];
 
+  // the images once, numbered (iPhone first, like the table's columns); the table names only their numbers
+  const shots = r.screenshots
+    .filter((f) => f.startsWith(`${ticket}_`))
+    .map((f) => shotOf(f, ticket))
+    .sort((a, b) =>
+      a.device === b.device ? a.file.localeCompare(b.file) : a.device === 'iPhone' ? -1 : 1,
+    );
+  const numbers = new Map(shots.map((s, i) => [s.file, i + 1]));
+  const number = (file: string) => {
+    const n = numbers.get(file);
+    return n ? `Bild ${n}` : 'Bild fehlt';
+  };
+
   const titles = [...new Set(r.checks.map((c) => c.title))];
   for (const title of titles) {
     const rows = r.checks.filter((c) => c.title === title);
     const of = (d: DeviceColumn) => rows.find((c) => c.device === d);
     const ios = of('iPhone');
     const android = of('Android');
-    const notes = [ios, android].map((c) => c?.note ?? '');
     const present = [ios, android].filter((c): c is RunCheck => !!c);
-    const note =
-      present.length > 1 && notes[0] === notes[1]
-        ? notes[0]
-        : present
-            .filter((c) => c.note)
-            .map((c) => `${c.device}: ${c.note}`)
-            .join('; ');
+    const parts = present.map((c) => ({ device: c.device, ...splitNote(c.note, number) }));
+    const own = (p: (typeof parts)[number]) =>
+      [p.text, p.refs.join(', ')].filter(Boolean).join(p.text && p.refs.length ? ' — ' : '');
+    let note: string;
+    if (parts.length > 1 && parts[0].text === parts[1].text && parts.some((p) => p.refs.length)) {
+      // the same sentence on both phones: once, each image with its phone
+      const refs = parts.flatMap((p) => p.refs.map((ref) => `${ref} (${p.device})`));
+      note = [parts[0].text, refs.join(', ')].filter(Boolean).join(' — ');
+    } else if (parts.length > 1 && own(parts[0]) === own(parts[1])) note = own(parts[0]);
+    else
+      note = parts
+        .filter((p) => own(p))
+        .map((p) => `${p.device}: ${own(p)}`)
+        .join('; ');
     lines.push(
       `| ${cell(title)} | ${ios?.outcome ?? '—'} | ${android?.outcome ?? '—'} | ${cell(note) || '—'} |`,
     );
   }
 
-  const shots = r.screenshots.filter((f) => f.startsWith(`${ticket}_`)).sort();
   lines.push('');
-  if (shots.length) lines.push('Bilder zum Anhängen:', ...shots.map((f) => `- ${f}`));
+  if (shots.length)
+    lines.push(
+      'Bilder zum Anhängen:',
+      ...shots.map((s, i) => `${i + 1}. ${s.device} – ${s.step} (${s.file})`),
+    );
   else lines.push('Bilder zum Anhängen: keine');
 
   const ownPhone = titles.filter((t) =>

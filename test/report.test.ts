@@ -144,8 +144,8 @@ describe('parseResult with test.step checks (one test per persona)', () => {
     const rows = md.split('\n').filter((l) => l.startsWith('| ') && !l.startsWith('| Prüfung'));
     expect(rows).toEqual([
       '| Text | — | bestanden | — |',
-      '| Preis | — | nicht bestanden | Android: Error: falscher Preis |',
-      '| Bild | — | zu prüfen (Bild) | Android: ACME-1_x_01-a.png |',
+      '| Preis | — | nicht bestanden | Android: falscher Preis |',
+      '| Bild | — | zu prüfen (Bild) | Android: Bild fehlt |',
     ]);
   });
 
@@ -514,7 +514,7 @@ describe('internal errors of the device service', () => {
     expect(r.checks[0].note).toContain('Log');
     expect(r.log.join('\n')).toContain('ECONNREFUSED');
   });
-  test('an app or environment failure keeps its own text, abort or not', () => {
+  test('an app or environment failure is a real failure, abort or not: a sentence, its text in the log', () => {
     for (const message of [
       'page.goto: 503 Service Unavailable',
       'TypeError: fetch failed: connect ECONNREFUSED 127.0.0.1:443',
@@ -549,8 +549,12 @@ describe('internal errors of the device service', () => {
           devices: ['iPhone 16'],
           ...(aborted ? { aborted } : {}),
         });
-        expect(r.checks[0]).toMatchObject({ outcome: 'nicht bestanden', note: message });
-        expect(r.log).toEqual([]);
+        expect(r.checks[0].outcome).toBe('nicht bestanden');
+        expect(r.checks[0].note).not.toBe('interner Fehler des Gerätedienstes (Details im Log)');
+        expect(r.checks[0].note).toMatch(
+          /^(Seite konnte nicht geöffnet werden|Technischer Fehler im Test) \(Details im Log\)$/,
+        );
+        expect(r.log).toEqual([`iPhone – Eins: ${message}`]);
       }
     }
   });
