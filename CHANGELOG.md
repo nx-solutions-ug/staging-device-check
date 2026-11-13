@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/nx-solutions-ug/staging-device-check/compare/v1.2.0...v1.2.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* signIn waits until the login is finished; guard the fixtures wiring ([#5](https://github.com/nx-solutions-ug/staging-device-check/issues/5)) ([b994e18](https://github.com/nx-solutions-ug/staging-device-check/commit/b994e18720f5280fc93d0b1014627d38876195e3))
+
 # [1.2.0](https://github.com/nx-solutions-ug/staging-device-check/compare/v1.1.1...v1.2.0) (2026-11-13)
 
 

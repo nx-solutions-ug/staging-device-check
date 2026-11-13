@@ -1,7 +1,7 @@
 {
   "name": "staging-device-check",
   "displayName": "Staging Device Check",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Lässt Claude ein Jira-Ticket auf echten Handys über BrowserStack gegen Staging testen.",
   "author": {
     "name": "NX Solutions UG",
