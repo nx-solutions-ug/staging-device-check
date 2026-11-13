@@ -44,12 +44,14 @@ The ticket's "Done when" / acceptance criteria add steps where the table does no
 | Prüfung                           | iPhone             | Android          | Hinweis                                              |
 | --------------------------------- | ------------------ | ---------------- | ---------------------------------------------------- |
 | Wohnort-Schritt zeigt die Auswahl | bestanden          | bestanden        | —                                                    |
-| Abstände wie im Entwurf           | zu prüfen (Bild)   | zu prüfen (Bild) | ABC-1_…_01-wohnort.png                               |
+| Abstände wie im Entwurf           | zu prüfen (Bild)   | zu prüfen (Bild) | Abstände prüfen — Bild 1 (iPhone), Bild 2 (Android)  |
+| Hinweis steht frei über „Weiter“  | bestanden          | nicht bestanden  | Android: Abstand Hinweis → Button -6 px              |
 | Weiter-Knopf über der Tastatur    | nicht prüfbar hier | bestanden        | iPhone: Tastatur auf iOS — auf eigenem iPhone prüfen |
 
 Bilder zum Anhängen:
 
-- ABC-1_…_01-wohnort.png
+1. iPhone – Wohnort (ABC-1_…_01-wohnort.png)
+2. Android – Wohnort (ABC-1_…_01-wohnort.png)
 
 Auf dem eigenen iPhone prüfen: Weiter-Knopf über der Tastatur
 ```
@@ -68,7 +70,21 @@ what produces each:
 
 After a hard stop that left no `result.json`, `report` still writes the section from `run.json` alone: the first line ends "– abgebrochen (sofort beendet)" and every planned check reads "abgebrochen".
 
-Internal errors of the device service (its local socket or gRPC connection, for example `14 UNAVAILABLE … sdk-platform-….sock`) never appear in a row: the note says "interner Fehler des Gerätedienstes (Details im Log)", and `report` prints the original text to stderr.
+**The note column holds sentences a tester understands, never raw error text.**
+
+- A failed check shows the message the spec gave its `expect.soft` (its first line, without `Error: `), so that
+  message must be a short German sentence about the app ("Abstand Hinweis → Button -6 px"). Parts that only say
+  `ok` in a joined list are left out.
+- Playwright's own messages become a short sentence ("Element nicht sichtbar", "Zeitüberschreitung bei einer Aktion
+  auf der Seite", "Messung nicht wie erwartet" …) with "(Details im Log)"; a JavaScript error reads "Technischer
+  Fehler im Test (Details im Log)".
+- Internal errors of the device service (its local socket or gRPC connection, for example
+  `14 UNAVAILABLE … sdk-platform-….sock`) read "interner Fehler des Gerätedienstes (Details im Log)".
+- In every such case `report` prints the original text to stderr, as `Details (nicht im Abschnitt): <Gerät> – <Prüfung>: …`.
+
+**Images** are listed once, numbered, iPhone first: `1. iPhone – <Schritt> (<Datei>)`. A note names an image only by
+its number ("Bild 3"); the same note on both phones is written once, each image with its phone
+("… — Bild 1 (iPhone), Bild 4 (Android)"). A note naming an image the folder lacks reads "Bild fehlt".
 
 `check()` writes its notes as test annotations whose description starts with the check's title (`<Prüfung>: <rest>`),
 because the Playwright JSON report keeps no annotations per step.

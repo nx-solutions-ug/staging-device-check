@@ -120,18 +120,24 @@ describe('skills', () => {
     expect(md + ios).not.toContain('_locale');
   });
 
-  test('iOS taps do not wait for visibility: the skill and ios-limits say to wait first', () => {
+  test('iOS taps do not wait for visibility: the harness tap waits, the skill taps only through it', () => {
     const md = read('skills', 'tests-e2e', 'SKILL.md');
     const ios = read('skills', 'tests-e2e', 'references', 'ios-limits.md');
+    const fixtures = read('workspace', 'harness', 'fixtures.ts');
     expect(ios).toMatch(/do not wait/);
-    expect(md).toContain('toBeVisible()');
-    expect(md).toMatch(/before every `tap`/);
-    // the example follows its own rule: every tap comes right after a toBeVisible() on the same locator
+    const tapFixture = fixtures.slice(
+      fixtures.indexOf('tap: async'),
+      fixtures.indexOf('typeInto: async'),
+    );
+    expect(tapFixture).toContain('toBeVisible()');
+    expect(tapFixture).toContain('toBeEnabled()');
+    expect(md).toMatch(/Tap only with `tap\(locator\)`/);
     const example = md.slice(md.indexOf('```ts'), md.indexOf('```', md.indexOf('```ts') + 5));
-    const lines = example.split('\n');
-    lines.forEach((l, i) => {
-      if (l.includes('.tap()')) expect(lines[i - 1] ?? '').toContain('toBeVisible()');
-    });
+    expect(example).not.toMatch(/\.(tap|fill|pressSequentially)\(/);
+    expect(example).toMatch(/await tap\(/);
+    expect(example).toMatch(/await typeInto\(/);
+    // only calls proven on BrowserStack's iOS shim: no element reads that never ran there
+    expect(example).not.toMatch(/\.(isVisible|inputValue|boundingBox|focus|blur|waitForTimeout)\(/);
   });
 
   test('tests-e2e says a real failure wins over nicht prüfbar hier', () => {

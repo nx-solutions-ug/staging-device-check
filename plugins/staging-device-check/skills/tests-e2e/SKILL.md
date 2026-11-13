@@ -53,6 +53,17 @@ attachments (design screenshots), and the **latest comment whose first line star
    4, "Language").
 3. If the host shows a provisioning page or a 404 instead of the app: the environment is not started. Tell her to
    open the branch once from the staging dashboard (the plugin never starts environments), and stop.
+4. Look under the conditions the phones bring, before any minute is spent:
+   - **Late consent banner.** On the first page, wait at least 10 seconds: on phones the cookie banner appears seconds
+     after load. Note the exact label of its most privacy-preserving button ("only necessary", "decline"). It goes
+     into the spec as `test.use({ consentButton: '<label>' })`, unless the settings already name one for this
+     project (`consentButtons`, which wins). No banner → no option.
+   - **Narrow phones.** Walk the steps at 393 px and at 360 px wide (`browser_resize`): what wraps, what moves.
+   - **Keyboard open.** For every step with a text field, focus it and shrink the window by about 300 px in height
+     (the room an on-screen keyboard takes): which elements, suggestions or buttons end up hidden. A check about it
+     needs the real keyboard (`{ keyboard: true }`); the next `tap()` closes the keyboard again.
+   - The selectors that stay true in all three, and the condition that tells each step apart (a heading, a field),
+     go into the spec — never a fixed wait.
 
 ## 4. Write the test
 
@@ -63,14 +74,15 @@ result section, and it owns everything about that row (the keyboard skip on iOS,
 note can never drift apart.
 
 ```ts
-import { check, evaluateWith, expect, test } from './harness/fixtures.js';
+import { check, expect, test } from './harness/fixtures.js';
 
 test.describe('Konto A (frau)', () => {
-  test.use({ persona: 'frau' });
+  // the consent banner's most privacy-preserving button, as the local look showed it
+  test.use({ persona: 'frau', consentButton: 'Nur notwendige' });
 
-  test('Konto A (frau)', async ({ page, account, staging, shot, layout }) => {
+  test('Konto A (frau)', async ({ page, account, staging, shot, layout, tap, typeInto }) => {
     await account('A'); // first: signs in (quick login or mail code)
-    await staging.goto('/registrierung/wohnort'); // only paths on the confirmed host
+    await staging.goto('/registrierung/wohnort'); // only paths on the confirmed host; dismisses the banner
 
     await check('Wohnort-Schritt zeigt die Auswahl', async () => {
       await expect.soft(page.getByRole('heading', { name: 'Wohnort' })).toBeVisible();
@@ -89,22 +101,37 @@ test.describe('Konto A (frau)', () => {
     });
 
     await check('Abstände wie im Entwurf', async ({ zuPruefen }) => {
-      zuPruefen(await shot('Wohnort')); // the row says "zu prüfen (Bild)" and names the screenshot
+      zuPruefen(await shot('Wohnort'), 'Abstände prüfen'); // "zu prüfen (Bild)", the image by its number
+    });
+
+    // typeInto: fill, then the native setter, then typing — until the app shows it noticed
+    const suggestions = page.getByRole('option');
+    await typeInto('[role=combobox]', '10115', {
+      until: () =>
+        suggestions
+          .first()
+          .waitFor({ state: 'visible', timeout: 1_000 })
+          .then(
+            () => true,
+            () => false,
+          ),
     });
 
     // keyboard: true — on the iPhone this check is "nicht prüfbar hier" and its body is skipped;
-    // on Android it runs. The persona's other checks run on both.
+    // on Android it measures with the keyboard open. The persona's other checks run on both.
     await check(
       'Weiter-Knopf über der Tastatur',
       async () => {
-        await expect(page.getByLabel('Ort')).toBeVisible();
-        await page.getByLabel('Ort').tap();
         const rules = await layout({ header: 'header', actionBar: '.bottom-bar', keyboard: true });
         const r4 = rules.find((x) => x.rule === 'R4');
         expect.soft(r4?.outcome, `R4: ${r4?.detail ?? 'nicht gemessen'}`).toBe('bestanden');
       },
       { keyboard: true },
     );
+
+    await tap(suggestions.first(), { keepKeyboard: true }); // picks a suggestion with the keyboard still open
+    await tap(page.getByRole('button', { name: 'Weiter' })); // closes the keyboard first, then taps
+    await expect(page.getByRole('heading', { name: 'Konto' })).toBeVisible(); // the next step, not a wait
   });
 });
 ```
@@ -145,9 +172,28 @@ Rules for the spec:
 - **Never** `page.evaluate(fn, arg)`, `$eval(sel, fn, arg)`, `evaluateAll(fn, arg)` or `waitForFunction(fn, arg)`
   with an argument: BrowserStack's iPhone driver drops it. Use `evaluateWith(page, fn, arg)` from the harness;
   calls without an argument are fine. `run` refuses a spec that breaks this.
-- Type with `pressSequentially` (on iOS, `keyboard.type` writes nothing).
-- `await expect(locator).toBeVisible()` before every `tap` and `click`: BrowserStack's iPhone acts at once and fails
-  on an element that is still fading in ("visibility:hidden").
+- **Tap only with `tap(locator)`, type only with `typeInto('<CSS selector>', value, { until })`** — the fixtures
+  from the harness. `run` refuses a spec with a raw `.tap()`, `.fill()` or `.pressSequentially()`.
+  - `tap` dismisses a late consent banner, closes the on-screen keyboard (on Android it covers the bottom button and
+    taps land beside it), waits until the target is visible and enabled, then taps. To pick a suggestion while the
+    keyboard stays open: `tap(option, { keepKeyboard: true })`.
+  - `typeInto` tries `fill`, then the native value setter, then typing character by character, and stops at the
+    first one the app noticed. Give it `until`: what the app does when it got the value (suggestions visible,
+    "Weiter" enabled). Without it, only the field's own value is read back.
+  - A check that needs the keyboard open measures first; the next `tap()` closes it, or `closeKeyboard()` when
+    nothing is tapped next.
+- **No fixed waits** (`waitForTimeout`): wait for what tells the next state apart — a heading, a field, a button
+  (`await expect(…).toBeVisible()`, `expect.poll`). `layout()` waits by itself until the page is at rest (entry
+  animations done, every measured element shown), at most about 6 s; a page that does not come to rest is "nicht bestanden", never a pass.
+- A step that reveals itself piece by piece (a typing indicator, content fading in one after another): wait for
+  its end — the indicator hidden (`expect.poll` on an in-page check) — before a screenshot or a text check;
+  `layout()` already waits for every element it measures to be shown.
+- `staging.goto` waits up to 20 s for the consent banner on the test's first navigation and dismisses it; every
+  `tap`, `layout()` and `shot()` looks for it once more. This needs the `consentButton` option (step 3).
+- **Messages are sentences for the tester.** The message of an `expect.soft` is what the row's note shows (without
+  `Error:`), so write a short German sentence about the app: `Abstand Hinweis → Knopf ${gap} px`, not `gap`. For a
+  list, join only what is wrong; parts that say just `ok` are dropped. Playwright's own texts become a short
+  sentence plus "(Details im Log)".
 
 ## 5. The list before any minutes are spent
 

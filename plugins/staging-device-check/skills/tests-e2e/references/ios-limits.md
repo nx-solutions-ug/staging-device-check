@@ -18,10 +18,15 @@ From the probe and the SDK live checks on iPhone 16 / iOS 18 and Samsung Galaxy 
   from the harness; `run` refuses a spec that passes an argument.
 - **The on-screen keyboard never opens through Playwright.** Every check that needs it is `nicht prüfbar hier` —
   "auf eigenem iPhone prüfen" — never a pass.
-- `keyboard.type` writes nothing; `pressSequentially` does.
+- **Text input: no single method works everywhere.** `keyboard.type` writes nothing. `pressSequentially` worked on
+  iOS 18 and, on iOS 17, in a plain text field — but wrote nothing into an autocomplete field (`role=combobox`),
+  where `fill` worked. So specs type only with the harness's `typeInto`, in this order, stopping at the first one the
+  app noticed (its `until`): `fill` → the native value setter on the field (`querySelector`, `focus()`, setter,
+  `input` and `change` events) → `pressSequentially` into the cleared field. Each run's output says which one
+  worked (`typeInto <selector>: <method>`).
 - **`tap` and `click` do not wait** for the element to be visible: an element that is still fading in fails at once
-  with `element is not actionable: element is not visible (visibility:hidden)`. Wait with
-  `await expect(locator).toBeVisible()` first.
+  with `element is not actionable: element is not visible (visibility:hidden)`. The harness's `tap` waits for
+  visible and enabled first.
 - `clearCookies({ name })` is refused; the harness falls back to clearing all cookies at the end of a test.
 - `page.screenshot` shows only the web content, without the Safari toolbar.
 - Not supported: console logs, Playwright logs, geolocation, `resolution`. Only Safari; there is no Chrome on iPhone.
@@ -31,6 +36,17 @@ From the probe and the SDK live checks on iPhone 16 / iOS 18 and Samsung Galaxy 
   language cookie of the app over from the local look with `appCookie` (SKILL.md, "Language"); otherwise texts are
   "nicht prüfbar hier (Gerätesprache)".
 
+## Both, from the device trial
+
+- **The consent banner appears late**, seconds after load, and covers steps and buttons. The harness waits for it
+  on the first navigation and looks again before every `tap`, `layout()` and `shot()` (`consentButton`).
+- **Entry animations** (an action bar fading in) make an early measurement wrong: `layout()` waits until the
+  measured boxes, the visual viewport and the scroll position are at rest and every measured element is shown.
+  Apps often lay a step out first and reveal it piece by piece (a chat guide typing, then the field, then the
+  button): wait for the end of such a reveal in the spec (the typing indicator hidden) before a screenshot.
+
 ## Android
 
 - `tap` opens the on-screen keyboard. The keyboard phase of the layout rules is measurable there.
+- **The open keyboard covers the bottom action button**; a tap aimed at it lands beside it. The harness's `tap`
+  blurs the field and waits until the visual viewport is back before tapping (`keepKeyboard` to keep it open).

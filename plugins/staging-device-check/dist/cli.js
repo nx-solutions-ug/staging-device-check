@@ -7596,6 +7596,11 @@ function validate(c) {
   if (!c.projects || typeof c.projects !== "object" || Array.isArray(c.projects) || !Object.values(c.projects).every(isString)) {
     throw new Error("Einstellungen: projects muss Anzeigenamen auf Labels abbilden.");
   }
+  if (c.consentButtons !== void 0 && (!c.consentButtons || typeof c.consentButtons !== "object" || Array.isArray(c.consentButtons) || !Object.values(c.consentButtons).every((v) => isString(v) && v.trim() !== ""))) {
+    throw new Error(
+      "Einstellungen: consentButtons muss Projekt-Labels auf die Beschriftung eines Knopfs abbilden."
+    );
+  }
   if (!Array.isArray(c.accounts)) throw new Error("Einstellungen: accounts muss eine Liste sein.");
   for (const a of c.accounts) {
     for (const k of ["label", "email", "persona", "project"]) {
@@ -7805,10 +7810,35 @@ var ZU_PRUEFEN = "zu pr\xFCfen";
 var INTERNAL = /\b14 UNAVAILABLE\b|\bgrpc\b|sdk-platform|\.sock\b/;
 var NOT_STARTED = /UmgebungNichtGestartet|Umgebung nicht gestartet/;
 var INTERNAL_NOTE = "interner Fehler des Ger\xE4tedienstes (Details im Log)";
+var ERROR_NAME = /^(?:(?:[A-Z][A-Za-z]*)?(?:Error|Fehler)|UmgebungNichtGestartet|NichtPruefbarHier): /;
+var JS_ERROR = /^(?:TypeError|ReferenceError|SyntaxError|RangeError|EvalError|URIError): /;
+var API_CALL = /^(?:page|locator|frame|browserContext|browser|elementHandle|keyboard|mouse|touchscreen|context|request)\.\w+: /;
+function playwrightSentence(line) {
+  if (/^Test timeout of \d+ms exceeded/.test(line))
+    return "Zeit\xFCberschreitung: der Test lief zu lange";
+  if (/strict mode violation/.test(line)) return "Element nicht eindeutig gefunden";
+  if (line.startsWith("expect(")) {
+    if (/\.toBe(?:Visible|InViewport)\(/.test(line)) return "Element nicht sichtbar";
+    if (/\.toBe(?:Hidden)\(/.test(line)) return "Element blieb sichtbar";
+    if (/\.toBe(?:Enabled|Editable)\(/.test(line)) return "Element nicht bedienbar";
+    if (/\.to(?:HaveText|ContainText|HaveValue)\(/.test(line)) return "Text nicht wie erwartet";
+    return "Messung nicht wie erwartet";
+  }
+  if (API_CALL.test(line)) {
+    if (/^page\.(?:goto|reload|goBack|goForward)/.test(line))
+      return "Seite konnte nicht ge\xF6ffnet werden";
+    if (/Timeout \d+ms exceeded/.test(line))
+      return "Zeit\xFCberschreitung bei einer Aktion auf der Seite";
+    return "Aktion auf der Seite fehlgeschlagen";
+  }
+  if (/^Timeout \d+ms exceeded/.test(line)) return "Zeit\xFCberschreitung beim Warten";
+  return null;
+}
+var DETAILS = " (Details im Log)";
 var deviceOf = (project) => /iphone|ipad|ios/i.test(project) ? "iPhone" : "Android";
 var ANSI = /\u001b\[[0-9;]*m/g;
 var firstLine = (s) => s.replace(ANSI, "").split("\n").find((l) => l.trim())?.trim().slice(0, 160) ?? "";
-function outcomeOf(t, clean) {
+function outcomeOf(t, clean, where) {
   const last = t.results?.at(-1) ?? {};
   const annotations = [...t.annotations ?? [], ...last.annotations ?? []];
   const find = (type) => annotations.find((a) => a.type === type);
@@ -7821,7 +7851,7 @@ function outcomeOf(t, clean) {
     const a = find(ZU_PRUEFEN);
     return a ? { outcome: "zu pr\xFCfen (Bild)", note: a.description ?? "" } : { outcome: "bestanden", note: "" };
   }
-  return { outcome: "nicht bestanden", note: clean(last.errors?.[0]?.message ?? status) };
+  return { outcome: "nicht bestanden", note: clean(last.errors?.[0]?.message ?? status, where) };
 }
 var annotationsOf = (t) => {
   const seen = /* @__PURE__ */ new Set();
@@ -7841,11 +7871,15 @@ function stepMark(annotations, type, step) {
   }
   return null;
 }
-function stepOutcome(step, annotations, clean) {
+function stepOutcome(step, annotations, clean, where) {
   const title = step.title ?? "";
   const notHere = stepMark(annotations, NICHT_PRUEFBAR, title);
   if (notHere !== null) return { outcome: "nicht pr\xFCfbar hier", note: notHere };
-  if (step.error) return { outcome: "nicht bestanden", note: clean(step.error.message ?? "") };
+  if (step.error)
+    return {
+      outcome: "nicht bestanden",
+      note: clean(step.error.message ?? "", `${where} \u2013 ${title}`)
+    };
   const look = stepMark(annotations, ZU_PRUEFEN, title);
   if (look !== null) return { outcome: "zu pr\xFCfen (Bild)", note: look };
   return { outcome: "bestanden", note: "" };
@@ -7855,10 +7889,21 @@ var INTERRUPTED = "Test unterbrochen";
 var namesStep = (a, titles) => titles.some((t) => a.description === t || (a.description ?? "").startsWith(`${t}: `));
 function parseResult(report2, screenshots, plan) {
   const log = [];
-  const clean = (message) => {
-    if (!INTERNAL.test(message)) return firstLine(message);
-    log.push(message.replace(ANSI, "").trim());
-    return INTERNAL_NOTE;
+  const clean = (message, where) => {
+    const raw = message.replace(ANSI, "").trim();
+    if (INTERNAL.test(message)) {
+      log.push(`${where}: interner Fehler des Ger\xE4tedienstes: ${raw}`);
+      return INTERNAL_NOTE;
+    }
+    const first = firstLine(message);
+    const line = first.replace(ERROR_NAME, "");
+    const sentence = JS_ERROR.test(first) ? "Technischer Fehler im Test" : playwrightSentence(line);
+    if (sentence) {
+      log.push(`${where}: ${raw}`);
+      return `${sentence}${DETAILS}`;
+    }
+    const parts = line.split("; ").filter((p) => p.trim() !== "ok");
+    return parts.length ? parts.join("; ") : line;
   };
   const abortedRow = (title, device, project) => ({
     title,
@@ -7899,7 +7944,7 @@ function parseResult(report2, screenshots, plan) {
       const last = t.results?.at(-1) ?? {};
       const steps = last.steps ?? [];
       if (!steps.length || last.status === "skipped") {
-        const whole = outcomeOf(t, clean);
+        const whole = outcomeOf(t, clean, `${device} \u2013 ${specTitle}`);
         const own = planned(specTitle);
         const cutTest2 = cutByAbort(last, steps);
         if (!cutTest2) finished.add(key(specTitle, device));
@@ -7924,9 +7969,10 @@ function parseResult(report2, screenshots, plan) {
         if (step === cut) {
           const message = step.error?.message;
           if (message && !INTERNAL.test(message)) log.push(message.replace(ANSI, "").trim());
-          else if (message) clean(message);
+          else if (message) clean(message, `${device} \u2013 ${title}`);
           checks.push(abortedRow(title, device, project));
-        } else checks.push({ title, device, project, ...stepOutcome(step, annotations, clean) });
+        } else
+          checks.push({ title, device, project, ...stepOutcome(step, annotations, clean, device) });
       }
       const problems = [];
       const titles = steps.map((s) => s.title ?? "");
@@ -7936,7 +7982,7 @@ function parseResult(report2, screenshots, plan) {
       if (last.status !== "passed" && !steps.some((s) => s.error)) {
         const message = last.errors?.[0]?.message ?? last.status ?? "";
         if (cutTest) log.push(firstLine(message));
-        else problems.push(clean(message));
+        else problems.push(clean(message, `${device} \u2013 ${specTitle}`));
       }
       if (problems.length)
         checks.push({
@@ -7971,6 +8017,19 @@ function parseResult(report2, screenshots, plan) {
 }
 var cell = (s) => s.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 var pad = (n) => String(n).padStart(2, "0");
+function shotOf(file, ticket) {
+  const [device = "", , last = ""] = file.slice(ticket.length + 1).split("_");
+  const words = last.replace(/\.png$/, "").replace(/^\d+-/, "").replaceAll("-", " ");
+  return { file, device: deviceOf(device), step: words.charAt(0).toUpperCase() + words.slice(1) };
+}
+function splitNote(note, number) {
+  const refs = [];
+  const text = note.replace(/\S+\.png\b/g, (file) => {
+    refs.push(number(file));
+    return "";
+  }).replace(/\s*—\s*$/, "").trim();
+  return { text, refs };
+}
 function renderStand(r, ticket, host, devices, date) {
   const label = host.split(".")[0];
   const day = `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}`;
@@ -7981,22 +8040,40 @@ function renderStand(r, ticket, host, devices, date) {
     "| Pr\xFCfung | iPhone | Android | Hinweis |",
     "|---|---|---|---|"
   ];
+  const shots = r.screenshots.filter((f) => f.startsWith(`${ticket}_`)).map((f) => shotOf(f, ticket)).sort(
+    (a, b) => a.device === b.device ? a.file.localeCompare(b.file) : a.device === "iPhone" ? -1 : 1
+  );
+  const numbers = new Map(shots.map((s, i) => [s.file, i + 1]));
+  const number = (file) => {
+    const n = numbers.get(file);
+    return n ? `Bild ${n}` : "Bild fehlt";
+  };
   const titles = [...new Set(r.checks.map((c) => c.title))];
   for (const title of titles) {
     const rows = r.checks.filter((c) => c.title === title);
     const of = (d) => rows.find((c) => c.device === d);
     const ios = of("iPhone");
     const android = of("Android");
-    const notes = [ios, android].map((c) => c?.note ?? "");
     const present = [ios, android].filter((c) => !!c);
-    const note = present.length > 1 && notes[0] === notes[1] ? notes[0] : present.filter((c) => c.note).map((c) => `${c.device}: ${c.note}`).join("; ");
+    const parts = present.map((c) => ({ device: c.device, ...splitNote(c.note, number) }));
+    const own = (p) => [p.text, p.refs.join(", ")].filter(Boolean).join(p.text && p.refs.length ? " \u2014 " : "");
+    let note;
+    if (parts.length > 1 && parts[0].text === parts[1].text && parts.some((p) => p.refs.length)) {
+      const refs = parts.flatMap((p) => p.refs.map((ref) => `${ref} (${p.device})`));
+      note = [parts[0].text, refs.join(", ")].filter(Boolean).join(" \u2014 ");
+    } else if (parts.length > 1 && own(parts[0]) === own(parts[1])) note = own(parts[0]);
+    else
+      note = parts.filter((p) => own(p)).map((p) => `${p.device}: ${own(p)}`).join("; ");
     lines.push(
       `| ${cell(title)} | ${ios?.outcome ?? "\u2014"} | ${android?.outcome ?? "\u2014"} | ${cell(note) || "\u2014"} |`
     );
   }
-  const shots = r.screenshots.filter((f) => f.startsWith(`${ticket}_`)).sort();
   lines.push("");
-  if (shots.length) lines.push("Bilder zum Anh\xE4ngen:", ...shots.map((f) => `- ${f}`));
+  if (shots.length)
+    lines.push(
+      "Bilder zum Anh\xE4ngen:",
+      ...shots.map((s, i) => `${i + 1}. ${s.device} \u2013 ${s.step} (${s.file})`)
+    );
   else lines.push("Bilder zum Anh\xE4ngen: keine");
   const ownPhone = titles.filter(
     (t) => r.checks.some((c) => c.title === t && c.outcome === "nicht pr\xFCfbar hier")
@@ -9666,13 +9743,13 @@ var FlowErrorTemplates = {
   DeclareClassFieldInitializer: "Initializers are not allowed in fields with the `declare` modifier.",
   DuplicateDeclareModuleExports: "Duplicate `declare module.exports` statement.",
   EnumBooleanMemberNotInitialized: ({
-    memberName,
+    memberName: memberName2,
     enumName
-  }) => `Boolean enum members need to be initialized. Use either \`${memberName} = true,\` or \`${memberName} = false,\` in enum \`${enumName}\`.`,
+  }) => `Boolean enum members need to be initialized. Use either \`${memberName2} = true,\` or \`${memberName2} = false,\` in enum \`${enumName}\`.`,
   EnumDuplicateMemberName: ({
-    memberName,
+    memberName: memberName2,
     enumName
-  }) => `Enum member names need to be unique, but the name \`${memberName}\` has already been used before in enum \`${enumName}\`.`,
+  }) => `Enum member names need to be unique, but the name \`${memberName2}\` has already been used before in enum \`${enumName}\`.`,
   EnumInconsistentMemberValues: ({
     enumName
   }) => `Enum \`${enumName}\` has inconsistent member initializers. Either use no initializers, or consistently use literals (either booleans, numbers, or strings) for all member initializers.`,
@@ -9685,26 +9762,26 @@ var FlowErrorTemplates = {
   }) => `Supplied enum type is not valid. Use one of \`boolean\`, \`number\`, \`string\`, or \`symbol\` in enum \`${enumName}\`.`,
   EnumInvalidMemberInitializerPrimaryType: ({
     enumName,
-    memberName,
+    memberName: memberName2,
     explicitType
-  }) => `Enum \`${enumName}\` has type \`${explicitType}\`, so the initializer of \`${memberName}\` needs to be a ${explicitType} literal.`,
+  }) => `Enum \`${enumName}\` has type \`${explicitType}\`, so the initializer of \`${memberName2}\` needs to be a ${explicitType} literal.`,
   EnumInvalidMemberInitializerSymbolType: ({
     enumName,
-    memberName
-  }) => `Symbol enum members cannot be initialized. Use \`${memberName},\` in enum \`${enumName}\`.`,
+    memberName: memberName2
+  }) => `Symbol enum members cannot be initialized. Use \`${memberName2},\` in enum \`${enumName}\`.`,
   EnumInvalidMemberInitializerUnknownType: ({
     enumName,
-    memberName
-  }) => `The enum member initializer for \`${memberName}\` needs to be a literal (either a boolean, number, or string) in enum \`${enumName}\`.`,
+    memberName: memberName2
+  }) => `The enum member initializer for \`${memberName2}\` needs to be a literal (either a boolean, number, or string) in enum \`${enumName}\`.`,
   EnumInvalidMemberName: ({
     enumName,
-    memberName,
+    memberName: memberName2,
     suggestion
-  }) => `Enum member names cannot start with lowercase 'a' through 'z'. Instead of using \`${memberName}\`, consider using \`${suggestion}\`, in enum \`${enumName}\`.`,
+  }) => `Enum member names cannot start with lowercase 'a' through 'z'. Instead of using \`${memberName2}\`, consider using \`${suggestion}\`, in enum \`${enumName}\`.`,
   EnumNumberMemberNotInitialized: ({
     enumName,
-    memberName
-  }) => `Number enum members need to be initialized, e.g. \`${memberName} = 1\` in enum \`${enumName}\`.`,
+    memberName: memberName2
+  }) => `Number enum members need to be initialized, e.g. \`${memberName2} = 1\` in enum \`${enumName}\`.`,
   EnumStringMemberInconsistentlyInitialized: ({
     enumName
   }) => `String enum members need to consistently either all use initializers, or use no initializers, in enum \`${enumName}\`.`,
@@ -11799,28 +11876,28 @@ var flow = (superClass) => class FlowParserMixin extends superClass {
         id,
         init
       } = this.flowEnumMemberRaw();
-      const memberName = id.name;
-      if (memberName === "") {
+      const memberName2 = id.name;
+      if (memberName2 === "") {
         continue;
       }
-      if (/^[a-z]/.test(memberName)) {
+      if (/^[a-z]/.test(memberName2)) {
         this.raise(FlowErrors.EnumInvalidMemberName, id, {
-          memberName,
-          suggestion: memberName[0].toUpperCase() + memberName.slice(1),
+          memberName: memberName2,
+          suggestion: memberName2[0].toUpperCase() + memberName2.slice(1),
           enumName
         });
       }
-      if (seenNames.has(memberName)) {
+      if (seenNames.has(memberName2)) {
         this.raise(FlowErrors.EnumDuplicateMemberName, id, {
-          memberName,
+          memberName: memberName2,
           enumName
         });
       }
-      seenNames.add(memberName);
+      seenNames.add(memberName2);
       const context = {
         enumName,
         explicitType,
-        memberName
+        memberName: memberName2
       };
       memberNode.id = id;
       switch (init.type) {
@@ -22920,6 +22997,12 @@ var literal = (n) => {
   return null;
 };
 var isTestCall = (callee) => callee.type === "Identifier" && callee.name === "test" || callee.type === "MemberExpression" && callee.object.type === "Identifier" && callee.object.name === "test" && ["only", "fixme", "fail", "slow"].includes(callee.property.name ?? "");
+var RAW_INPUT = {
+  tap: "tap(locator)",
+  fill: "typeInto(selector, Wert)",
+  pressSequentially: "typeInto(selector, Wert)"
+};
+var memberName = (callee) => (callee.type === "MemberExpression" || callee.type === "OptionalMemberExpression") && callee.property.type === "Identifier" && !callee.computed ? callee.property.name : null;
 var isStepCall = (callee) => callee.type === "MemberExpression" && callee.property.type === "Identifier" && callee.property.name === "step";
 function specPlan(source, file) {
   const ast = parse2(source, { sourceType: "module", plugins: ["typescript"] });
@@ -22932,6 +23015,13 @@ function specPlan(source, file) {
     }
     const node = n;
     let inner = current;
+    if (node.type === "CallExpression" || node.type === "OptionalCallExpression") {
+      const raw = memberName(node.callee);
+      if (raw && Object.hasOwn(RAW_INPUT, raw))
+        plan.problems.push(
+          `${file}:${node.loc?.start.line ?? "?"}: .${raw}() direkt \u2014 bitte ${RAW_INPUT[raw]} aus der Harness verwenden`
+        );
+    }
     if (node.type === "CallExpression") {
       const callee = node.callee;
       const args = node.arguments;
@@ -23728,8 +23818,7 @@ function report(dir, ticket, d) {
       ...meta.aborted ? { aborted: meta.aborted } : {}
     } : void 0
   );
-  for (const line of parsed.log)
-    d.err(`Interner Fehler des Ger\xE4tedienstes (nicht im Abschnitt): ${line}`);
+  for (const line of parsed.log) d.err(`Details (nicht im Abschnitt): ${line}`);
   const md = renderStand(parsed, ticket, meta.host, meta.devices ?? [], new Date(meta.createdAt));
   writeFileSync4(join6(dir, "stand-abschnitt.md"), md);
   d.out(md.trimEnd());
