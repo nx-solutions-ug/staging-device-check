@@ -185,6 +185,9 @@ Rules for the spec:
 - **No fixed waits** (`waitForTimeout`): wait for what tells the next state apart — a heading, a field, a button
   (`await expect(…).toBeVisible()`, `expect.poll`). `layout()` waits by itself until the page is at rest (entry
   animations done), at most about 3 s; a page that does not come to rest is "nicht bestanden", never a pass.
+- A step that reveals itself piece by piece (a typing indicator, content fading in one after another): wait for
+  its end — the indicator hidden (`expect.poll` on an in-page check) — before a screenshot or a text check;
+  `layout()` already waits for every element it measures to be shown.
 - `staging.goto` waits up to 20 s for the consent banner on the test's first navigation and dismisses it; every
   `tap`, `layout()` and `shot()` looks for it once more. This needs the `consentButton` option (step 3).
 - **Messages are sentences for the tester.** The message of an `expect.soft` is what the row's note shows (without

@@ -92,7 +92,10 @@ describe('consent banner', () => {
 });
 
 /** linkedom lays nothing out: every element gets the box and style the test gives it. */
-function dom(html: string, boxes: Record<string, { height?: number; hidden?: boolean }> = {}) {
+function dom(
+  html: string,
+  boxes: Record<string, { height?: number; hidden?: boolean; opacity?: number }> = {},
+) {
   const { document, window } = parseHTML(`<!doctype html><html><body>${html}</body></html>`);
   for (const [sel, b] of Object.entries(boxes))
     for (const el of document.querySelectorAll(sel)) {
@@ -105,15 +108,16 @@ function dom(html: string, boxes: Record<string, { height?: number; hidden?: boo
         right: 100,
       });
       (el as unknown as { _hidden: boolean })._hidden = !!b.hidden;
+      (el as unknown as { _opacity: number })._opacity = b.opacity ?? 1;
     }
   const g = globalThis as Record<string, unknown>;
   const before = { document: g.document, getComputedStyle: g.getComputedStyle, window: g.window };
   g.document = document;
   g.window = window;
-  g.getComputedStyle = (el: { _hidden?: boolean }) => ({
+  g.getComputedStyle = (el: { _hidden?: boolean; _opacity?: number }) => ({
     visibility: el._hidden ? 'hidden' : 'visible',
     display: 'block',
-    opacity: '1',
+    opacity: String(el._opacity ?? 1),
   });
   return {
     document,
@@ -327,7 +331,12 @@ describe('in-page input helpers', () => {
 
 describe('layout waits for a page at rest', () => {
   const probes = (list: Probe[]) => async () => list.shift() ?? list.at(-1)!;
-  const p = (shape: number[], running = 0, present = true): Probe => ({ present, running, shape });
+  const p = (shape: number[], running = 0, present = true, hidden = 0): Probe => ({
+    present,
+    running,
+    hidden,
+    shape,
+  });
 
   test('two equal readings in a row: at rest', async () => {
     const c = fakeClock();
@@ -351,11 +360,21 @@ describe('layout waits for a page at rest', () => {
     expect(s).toEqual({ stable: true, ms: 450 });
   });
 
+  test('a step revealed piece by piece: still boxes are not at rest while an element is not shown', async () => {
+    const c = fakeClock();
+    const s = await settle(
+      probes([p([1], 0, true, 2), p([1], 0, true, 2), p([1], 0, true, 1), p([1]), p([1])]),
+      c,
+    );
+    expect(s).toEqual({ stable: true, ms: 600 });
+  });
+
   test('never at rest: stops at the bound, says why', async () => {
     for (const [make, why] of [
       [(i: number) => p([i]), 'Maße ändern sich noch'],
       [() => p([1], 1), 'Animation läuft noch'],
       [() => p([1], 0, false), 'Elemente fehlen'],
+      [() => p([1], 0, true, 1), 'Elemente noch nicht sichtbar'],
     ] as const) {
       const c = fakeClock();
       let i = 0;
@@ -415,6 +434,36 @@ describe('layout waits for a page at rest', () => {
       expect(probe.running).toBe(1);
       expect(probe.shape).toHaveLength(4 * 3 + 3);
       expect(probeInPage({ header: 'header', actionBar: '.missing' }).present).toBe(false);
+      expect(probe.hidden).toBe(0);
+    } finally {
+      d.restore();
+    }
+  });
+
+  test('probe: a faded or invisible element counts as not shown, one without room does not', () => {
+    const d = dom(
+      '<header>k</header><div class="g" id="faded"></div><div class="g" id="gone"></div>' +
+        '<div class="g" id="none"></div><nav><button id="b">Weiter</button></nav>',
+      {
+        header: {},
+        '#faded': { opacity: 0.5 },
+        '#gone': { hidden: true },
+        '#none': { height: 0, opacity: 0 },
+        nav: {},
+        '#b': { hidden: true },
+      },
+    );
+    try {
+      Object.assign(d.window, {
+        scrollY: 0,
+        innerHeight: 800,
+        visualViewport: { offsetTop: 0, height: 800 },
+      });
+      expect(probeInPage({ header: 'header', top: '.g' }).hidden).toBe(2);
+      // the bar itself is shown, its only button is not: the step is not revealed yet
+      expect(probeInPage({ header: 'header', actionBar: 'nav' }).hidden).toBe(1);
+      (d.document.getElementById('b') as unknown as { _hidden: boolean })._hidden = false;
+      expect(probeInPage({ header: 'header', actionBar: 'nav' }).hidden).toBe(0);
     } finally {
       d.restore();
     }

@@ -41,7 +41,9 @@ From the probe and the SDK live checks on iPhone 16 / iOS 18 and Samsung Galaxy 
 - **The consent banner appears late**, seconds after load, and covers steps and buttons. The harness waits for it
   on the first navigation and looks again before every `tap`, `layout()` and `shot()` (`consentButton`).
 - **Entry animations** (an action bar fading in) make an early measurement wrong: `layout()` waits until the
-  measured boxes, the visual viewport and the scroll position are at rest.
+  measured boxes, the visual viewport and the scroll position are at rest and every measured element is shown.
+  Apps often lay a step out first and reveal it piece by piece (a chat guide typing, then the field, then the
+  button): wait for the end of such a reveal in the spec (the typing indicator hidden) before a screenshot.
 
 ## Android
 
